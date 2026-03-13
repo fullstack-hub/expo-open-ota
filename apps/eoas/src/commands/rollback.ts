@@ -142,9 +142,9 @@ export default class Publish extends Command {
     await Promise.all(
       runtimeVersions.map(async ({ runtimeVersion, platform }) => {
         const rollbackUrl = new URL(`${baseUrl}/rollback/${branch}`);
-        rollbackUrl.searchParams.set('commitHash', `${commitHash}`);
+        rollbackUrl.searchParams.set('commitHash', commitHash);
         rollbackUrl.searchParams.set('platform', platform);
-        rollbackUrl.searchParams.set('runtimeVersion', `${runtimeVersion}`);
+        rollbackUrl.searchParams.set('runtimeVersion', runtimeVersion);
 
         const response = await fetchWithRetries(rollbackUrl.toString(), {
           method: 'POST',
