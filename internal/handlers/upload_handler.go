@@ -21,6 +21,7 @@ import (
 
 type FileNamesRequest struct {
 	FileNames []string `json:"fileNames"`
+	Message   string   `json:"message,omitempty"`
 }
 
 func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +257,9 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	fileUpdateMetadata := map[string]interface{}{
 		"platform":   platform,
 		"commitHash": commitHash,
+	}
+	if request.Message != "" {
+		fileUpdateMetadata["message"] = request.Message
 	}
 	marshalledMetadata, err := json.Marshal(fileUpdateMetadata)
 	if err != nil {
