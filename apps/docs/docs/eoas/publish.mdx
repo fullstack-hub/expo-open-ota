@@ -14,7 +14,7 @@ It supports the fingerprint policy.
 To publish an update, run the following command in your Expo project:
 
 ```bash
-npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>]
+npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>] [--message <message>]
 ```
 
 This command will retrieve the expo credentials from your .expo/state.json file or an EXPO_TOKEN in your runtime environment to authenticate
@@ -25,6 +25,17 @@ the request to the Expo API.
  Example: `EXPO_TOKEN=your_token RELEASE_CHANNEL=staging npx eoas publish --branch <branch-name>`.
  Or with dotenv: `dotenv -e .env.local -- npx eoas publish --branch <branch-name>`.
 :::
+
+## Update message
+
+You can attach a short description to each update using the `--message` (or `-m`) flag:
+
+```bash
+npx eoas publish --branch production -m "Fix login crash on Android"
+```
+
+If omitted, EOAS defaults to the latest git commit message, following the same behavior as EAS Update.
+The message is visible in the [dashboard](/dashboard) updates table.
 
 ## Package runner
 
