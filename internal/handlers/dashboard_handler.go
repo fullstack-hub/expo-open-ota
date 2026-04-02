@@ -76,6 +76,8 @@ type SettingsEnv struct {
 	AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID string `json:"AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"`
 	PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH      string `json:"PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
+	MULTI_APP_MODE                         bool   `json:"MULTI_APP_MODE"`
+	APP_SLUG                               string `json:"APP_SLUG,omitempty"`
 }
 
 func maskSecret(value string) string {
@@ -85,15 +87,28 @@ func maskSecret(value string) string {
 	return "***" + value[:5]
 }
 
-func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
+func getAppSlug(app *config.AppConfig) string {
+	if app != nil {
+		return app.Slug
+	}
+	return ""
+}
 
-	// Retrieve all in config.GetEnv & return as JSON
+func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	app := resolveApp(r)
+	expoAppId := config.GetEnv("EXPO_APP_ID")
+	expoAccessToken := config.GetEnv("EXPO_ACCESS_TOKEN")
+	if app != nil && app.ExpoAppId != "" {
+		expoAppId = app.ExpoAppId
+		expoAccessToken = app.ExpoAccessToken
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(SettingsEnv{
 		BASE_URL:                               config.GetEnv("BASE_URL"),
-		EXPO_APP_ID:                            config.GetEnv("EXPO_APP_ID"),
-		EXPO_ACCESS_TOKEN:                      maskSecret(config.GetEnv("EXPO_ACCESS_TOKEN")),
+		EXPO_APP_ID:                            expoAppId,
+		EXPO_ACCESS_TOKEN:                      maskSecret(expoAccessToken),
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
@@ -115,11 +130,16 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"),
 		PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH:      config.GetEnv("PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"),
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),
+		MULTI_APP_MODE:                         config.IsMultiAppMode(),
+		APP_SLUG:                               getAppSlug(app),
 	})
 }
 
 func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
-	cacheKey := dashboard.ComputeGetChannelsCacheKey()
+	app := resolveApp(r)
+	slug := getAppSlug(app)
+
+	cacheKey := dashboard.ComputeGetChannelsCacheKey(slug)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -129,12 +149,12 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(channels)
 		return
 	}
-	allChannels, err := services.FetchExpoChannels()
+	allChannels, err := services.FetchExpoChannels(app)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	branchesMapping, err := services.FetchExpoBranchesMapping(app)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -168,13 +188,15 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
-	resolvedBucket := bucket.GetBucket()
+	app := resolveApp(r)
+
+	resolvedBucket := bucket.GetBucketForApp(app)
 	branches, err := resolvedBucket.GetBranches()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	branchesMapping, err := services.FetchExpoBranchesMapping(app)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -202,9 +224,12 @@ func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
+	app := resolveApp(r)
+	slug := getAppSlug(app)
+
 	vars := mux.Vars(r)
 	branchName := vars["BRANCH"]
-	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(branchName)
+	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(slug, branchName)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -214,7 +239,7 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(runtimeVersions)
 		return
 	}
-	resolvedBucket := bucket.GetBucket()
+	resolvedBucket := bucket.GetBucketForApp(app)
 	runtimeVersions, err := resolvedBucket.GetRuntimeVersions(branchName)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -237,11 +262,14 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
+	app := resolveApp(r)
+	slug := getAppSlug(app)
+
 	vars := mux.Vars(r)
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	updateId := vars["UPDATE_ID"]
-	cacheKey := dashboard.ComputeGetUpdateDetailsCacheKey(branchName, runtimeVersion, updateId)
+	cacheKey := dashboard.ComputeGetUpdateDetailsCacheKey(slug, branchName, runtimeVersion, updateId)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -256,14 +284,14 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	metadata, err := update2.GetMetadata(*update)
+	metadata, err := update2.GetMetadata(app, *update)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	numberUpdate, _ := strconv.ParseInt(update.UpdateId, 10, 64)
-	storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(*update)
-	expoConfig, err := update2.GetExpoConfig(*update)
+	storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(app, *update)
+	expoConfig, err := update2.GetExpoConfig(app, *update)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -280,7 +308,7 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 		CommitHash: storedMetadata.CommitHash,
 		Platform:   storedMetadata.Platform,
 		Message:    storedMetadata.Message,
-		Type:       update2.GetUpdateType(*update),
+		Type:       update2.GetUpdateType(app, *update),
 		ExpoConfig: string(expoConfig),
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -293,10 +321,13 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
+	app := resolveApp(r)
+	slug := getAppSlug(app)
+
 	vars := mux.Vars(r)
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
-	cacheKey := dashboard.ComputeGetUpdatesCacheKey(branchName, runtimeVersion)
+	cacheKey := dashboard.ComputeGetUpdatesCacheKey(slug, branchName, runtimeVersion)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -306,7 +337,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(updatesResponse)
 		return
 	}
-	resolvedBucket := bucket.GetBucket()
+	resolvedBucket := bucket.GetBucketForApp(app)
 	updates, err := resolvedBucket.GetUpdates(branchName, runtimeVersion)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -315,13 +346,13 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 
 	var updatesResponse []UpdateItem
 	for _, update := range updates {
-		isValid := update2.IsUpdateValid(update)
+		isValid := update2.IsUpdateValid(app, update)
 		if !isValid {
 			continue
 		}
 		numberUpdate, _ := strconv.ParseInt(update.UpdateId, 10, 64)
-		storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(update)
-		updateType := update2.GetUpdateType(update)
+		storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(app, update)
+		updateType := update2.GetUpdateType(app, update)
 		if updateType == types.Rollback {
 			updatesResponse = append(updatesResponse, UpdateItem{
 				UpdateUUID: "Rollback to embedded",
@@ -334,7 +365,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		metadata, err := update2.GetMetadata(update)
+		metadata, err := update2.GetMetadata(app, update)
 		if err != nil {
 			continue
 		}
@@ -366,6 +397,9 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
+	app := resolveApp(r)
+	slug := getAppSlug(app)
+
 	vars := mux.Vars(r)
 	branchId := vars["BRANCH"]
 	var requestBody struct {
@@ -385,7 +419,7 @@ func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Release channel is empty"))
 		return
 	}
-	err = services.UpdateChannelBranchMapping(releaseChannel, branchId)
+	err = services.UpdateChannelBranchMapping(app, releaseChannel, branchId)
 	if err != nil {
 		fmt.Println("Error updating channel branch mapping:", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -397,11 +431,11 @@ func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(marshaledResponse)
 
-	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey()
-	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey()
+	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(slug)
+	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey(slug)
 	cache := cache2.GetCache()
 	cache.Delete(branchesCacheKey)
 	cache.Delete(channelsCacheKey)
-	channelMappingCacheKey := services.ComputeChannelMappingCacheKey(releaseChannel)
+	channelMappingCacheKey := services.ComputeChannelMappingCacheKey(app, releaseChannel)
 	cache.Delete(channelMappingCacheKey)
 }

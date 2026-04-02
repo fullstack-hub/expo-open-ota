@@ -12,9 +12,11 @@ import (
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	app := resolveApp(r)
+
 	channelName := r.Header.Get("expo-channel-name")
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchMap, err := services.FetchExpoChannelMapping(app, channelName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
@@ -36,7 +38,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 
 	cdn := cdn2.GetCDN()
 	if cdn == nil || preventCDNRedirection {
-		resp, err := assets.HandleAssetsWithFile(req)
+		resp, err := assets.HandleAssetsWithFile(app, req)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -52,7 +54,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 		compression.ServeCompressedAsset(w, r, resp.Body, resp.ContentType, req.RequestID)
 		return
 	}
-	resp, err := assets.HandleAssetsWithURL(req, cdn)
+	resp, err := assets.HandleAssetsWithURL(app, req, cdn)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return

@@ -56,6 +56,8 @@ func ResolveBucketType() BucketType {
 var (
 	bucketInstance Bucket
 	once           sync.Once
+	bucketRegistry = make(map[string]Bucket)
+	registryMu     sync.RWMutex
 )
 
 func GetBucket() Bucket {
@@ -91,6 +93,51 @@ func GetBucket() Bucket {
 	return bucketInstance
 }
 
+func GetBucketForApp(app *config.AppConfig) Bucket {
+	if app == nil || app.Slug == "" {
+		return GetBucket()
+	}
+	prefix := app.GetEffectiveS3KeyPrefix()
+	return getBucketForPrefix(prefix)
+}
+
+func getBucketForPrefix(prefix string) Bucket {
+	registryMu.RLock()
+	if b, ok := bucketRegistry[prefix]; ok {
+		registryMu.RUnlock()
+		return b
+	}
+	registryMu.RUnlock()
+
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	if b, ok := bucketRegistry[prefix]; ok {
+		return b
+	}
+
+	bucketType := ResolveBucketType()
+	var b Bucket
+	switch bucketType {
+	case S3BucketType:
+		b = &S3Bucket{
+			BucketName: config.GetEnv("S3_BUCKET_NAME"),
+			KeyPrefix:  prefix,
+		}
+	case GCSBucketType:
+		b = &GCSBucket{
+			BucketName: config.GetEnv("GCS_BUCKET_NAME"),
+		}
+	case LocalBucketType:
+		b = &LocalBucket{
+			BasePath: config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
+		}
+	default:
+		panic(fmt.Sprintf("Unknown bucket type: %s", bucketType))
+	}
+	bucketRegistry[prefix] = b
+	return b
+}
+
 func ConvertReadCloserToBytes(rc io.ReadCloser) ([]byte, error) {
 	defer rc.Close()
 	var buf bytes.Buffer
@@ -111,13 +158,13 @@ type FileUploadRequest struct {
 	FilePath         string `json:"filePath"`
 }
 
-func RequestUploadUrlsForFileUpdates(branch string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
+func RequestUploadUrlsForFileUpdates(app *config.AppConfig, branch string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
 	uniqueFileNames := make(map[string]struct{})
 	for _, fileName := range fileNames {
 		uniqueFileNames[fileName] = struct{}{}
 	}
 
-	bucket := GetBucket()
+	bucket := GetBucketForApp(app)
 
 	var requests []FileUploadRequest
 	var mu sync.Mutex

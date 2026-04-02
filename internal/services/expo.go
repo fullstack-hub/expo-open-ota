@@ -46,7 +46,14 @@ type BranchMapping struct {
 	} `json:"data"`
 }
 
-func ValidateExpoAuth(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
+func resolveAppConfig(app *config.AppConfig) (string, string) {
+	if app != nil && app.ExpoAppId != "" {
+		return app.ExpoAppId, app.ExpoAccessToken
+	}
+	return config.GetEnv("EXPO_APP_ID"), config.GetEnv("EXPO_ACCESS_TOKEN")
+}
+
+func ValidateExpoAuth(app *config.AppConfig, expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
 	if expoAuth.Token == nil && expoAuth.SessionSecret == nil {
 		return nil, errors.New("no valid Expo auth provided")
 	}
@@ -57,7 +64,7 @@ func ValidateExpoAuth(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
 	if expoAccount == nil {
 		return nil, errors.New("no expo account found")
 	}
-	selfExpoUsername := FetchSelfExpoUsername()
+	selfExpoUsername := FetchSelfExpoUsername(app)
 	if selfExpoUsername != expoAccount.Username {
 		return nil, errors.New("expo account does not match self expo username")
 	}
@@ -111,7 +118,6 @@ func makeGraphQLRequest(ctx context.Context, query string, variables map[string]
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Read error message in response body
 		responseBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return errors.New("GraphQL request failed with status: " + resp.Status + " and unable to read response body")
@@ -122,7 +128,7 @@ func makeGraphQLRequest(ctx context.Context, query string, variables map[string]
 	return json.NewDecoder(resp.Body).Decode(result)
 }
 
-func FetchExpoChannels() ([]ExpoChannel, error) {
+func FetchExpoChannels(app *config.AppConfig) ([]ExpoChannel, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -136,8 +142,7 @@ func FetchExpoChannels() ([]ExpoChannel, error) {
 			}
 		}
 	`
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	appId, expoToken := resolveAppConfig(app)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -163,7 +168,7 @@ func FetchExpoChannels() ([]ExpoChannel, error) {
 	return resp.Data.App.ById.UpdateChannels, nil
 }
 
-func UpdateChannelBranchMapping(channelName, branchId string) error {
+func UpdateChannelBranchMapping(app *config.AppConfig, channelName, branchId string) error {
 	fmt.Println("Updating channel branch mapping for channel:", channelName, "to branch:", branchId)
 	query := `
 		mutation UpdateChannelBranchMapping($channelId: ID!, $branchMapping: String!) {
@@ -197,7 +202,7 @@ func UpdateChannelBranchMapping(channelName, branchId string) error {
 		"branchMapping": string(branchMappingBytes),
 	}
 
-	token := GetExpoAccessToken()
+	_, token := resolveAppConfig(app)
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "UpdateChannelBranchMapping"
@@ -209,7 +214,7 @@ func UpdateChannelBranchMapping(channelName, branchId string) error {
 	}, &resp, headers)
 }
 
-func FetchExpoBranches() ([]string, error) {
+func FetchExpoBranches(app *config.AppConfig) ([]string, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -223,8 +228,7 @@ func FetchExpoBranches() ([]string, error) {
 			}
 		}
 	`
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	appId, expoToken := resolveAppConfig(app)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -287,8 +291,8 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 	return &resp.Data.Me, nil
 }
 
-func FetchSelfExpoUsername() string {
-	token := GetExpoAccessToken()
+func FetchSelfExpoUsername(app *config.AppConfig) string {
+	_, token := resolveAppConfig(app)
 	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
 		Token: &token,
 	})
@@ -298,13 +302,17 @@ func FetchSelfExpoUsername() string {
 	return expoAccount.Username
 }
 
-func ComputeChannelMappingCacheKey(channelName string) string {
-	return fmt.Sprintf("channelMapping:%s:%s", version.Version, channelName)
+func ComputeChannelMappingCacheKey(app *config.AppConfig, channelName string) string {
+	appSlug := ""
+	if app != nil {
+		appSlug = app.Slug
+	}
+	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appSlug, channelName)
 }
 
-func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
+func FetchExpoChannelMapping(app *config.AppConfig, channelName string) (*ExpoChannelMapping, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeChannelMappingCacheKey(channelName)
+	cacheKey := ComputeChannelMappingCacheKey(app, channelName)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var mapping ExpoChannelMapping
 		if err := json.Unmarshal([]byte(cachedValue), &mapping); err != nil {
@@ -333,8 +341,7 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 		}
 	`
 
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	appId, expoToken := resolveAppConfig(app)
 	variables := map[string]interface{}{
 		"appId":       appId,
 		"channelName": channelName,
@@ -405,7 +412,7 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 	return result, nil
 }
 
-func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
+func FetchExpoBranchesMapping(app *config.AppConfig) ([]ExpoBranchMapping, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -425,8 +432,7 @@ func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
 		}
 	`
 
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	appId, expoToken := resolveAppConfig(app)
 	variables := map[string]interface{}{"appId": appId}
 
 	headers := map[string]string{}
@@ -499,7 +505,7 @@ func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
 	return branchMappings, nil
 }
 
-func CreateBranch(branch string) error {
+func CreateBranch(app *config.AppConfig, branch string) error {
 	query := `
 		mutation CreateUpdateBranchForAppMutation($appId: ID!, $name: String!) {
 		  updateBranch {
@@ -509,12 +515,11 @@ func CreateBranch(branch string) error {
 		  }
 		}
 	`
-	appId := GetExpoAppId()
+	appId, token := resolveAppConfig(app)
 	variables := map[string]interface{}{
 		"appId": appId,
 		"name":  branch,
 	}
-	token := GetExpoAccessToken()
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "CreateBranch"

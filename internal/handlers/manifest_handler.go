@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"expo-open-ota/config"
+	"expo-open-ota/internal/appcontext"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
@@ -17,6 +19,14 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func resolveApp(r *http.Request) *config.AppConfig {
+	app := appcontext.GetAppConfig(r.Context())
+	if app == nil {
+		return config.GetDefaultAppConfig()
+	}
+	return app
+}
 
 func createMultipartResponse(headers map[string][]string, jsonContent interface{}) (*multipart.Writer, *bytes.Buffer, error) {
 	var buf bytes.Buffer
@@ -90,9 +100,9 @@ func putResponse(w http.ResponseWriter, r *http.Request, content interface{}, fi
 	writeResponse(w, writer, buf, protocolVersion, runtimeVersion, requestID)
 }
 
-func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
+func putUpdateInResponse(w http.ResponseWriter, r *http.Request, app *config.AppConfig, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
 	currentUpdateId := r.Header.Get("expo-current-update-id")
-	metadata, err := update.GetMetadata(lastUpdate)
+	metadata, err := update.GetMetadata(app, lastUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
 		http.Error(w, "Error getting metadata", http.StatusInternalServerError)
@@ -103,7 +113,7 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate type
 		putNoUpdateAvailableInResponse(w, r, lastUpdate.RuntimeVersion, protocolVersion, requestID)
 		return
 	}
-	manifest, err := update.ComposeUpdateManifest(&metadata, lastUpdate, platform)
+	manifest, err := update.ComposeUpdateManifest(app, &metadata, lastUpdate, platform)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error composing manifest: %v", requestID, err)
 		http.Error(w, "Error composing manifest", http.StatusInternalServerError)
@@ -116,7 +126,7 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate type
 	putResponse(w, r, manifest, "manifest", lastUpdate.RuntimeVersion, protocolVersion, requestID)
 }
 
-func putRollbackInResponse(w http.ResponseWriter, r *http.Request, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
+func putRollbackInResponse(w http.ResponseWriter, r *http.Request, app *config.AppConfig, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
 	if protocolVersion == 0 {
 		http.Error(w, "Rollback not supported in protocol version 0", http.StatusBadRequest)
 		return
@@ -131,7 +141,7 @@ func putRollbackInResponse(w http.ResponseWriter, r *http.Request, lastUpdate ty
 		putNoUpdateAvailableInResponse(w, r, lastUpdate.RuntimeVersion, protocolVersion, requestID)
 		return
 	}
-	directive, err := update.CreateRollbackDirective(lastUpdate)
+	directive, err := update.CreateRollbackDirective(app, lastUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error creating rollback directive: %v", requestID, err)
 		http.Error(w, "Error creating rollback directive", http.StatusInternalServerError)
@@ -152,6 +162,7 @@ func putNoUpdateAvailableInResponse(w http.ResponseWriter, r *http.Request, runt
 
 func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	app := resolveApp(r)
 
 	channelName := r.Header.Get("expo-channel-name")
 	if channelName == "" {
@@ -159,7 +170,7 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No channel name provided", http.StatusBadRequest)
 		return
 	}
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchMap, err := services.FetchExpoChannelMapping(app, channelName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("Error fetching channel mapping: %v", err), http.StatusInternalServerError)
@@ -211,7 +222,7 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branch, runtimeVersion, platform)
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(app, branch, runtimeVersion, platform)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting latest update: %v", requestID, err)
 		http.Error(w, "Error getting latest update", http.StatusInternalServerError)
@@ -223,10 +234,10 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType := update.GetUpdateType(app, *lastUpdate)
 	if updateType == types.NormalUpdate {
-		putUpdateInResponse(w, r, *lastUpdate, platform, protocolVersion, requestID)
+		putUpdateInResponse(w, r, app, *lastUpdate, platform, protocolVersion, requestID)
 	} else {
-		putRollbackInResponse(w, r, *lastUpdate, platform, protocolVersion, requestID)
+		putRollbackInResponse(w, r, app, *lastUpdate, platform, protocolVersion, requestID)
 	}
 }

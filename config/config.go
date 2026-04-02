@@ -71,6 +71,9 @@ func LoadConfig() {
 	if err != nil {
 		log.Printf("No .env file found, continuing with runtime environment variables.")
 	}
+
+	LoadAppsConfig()
+
 	storageMode := GetEnv("STORAGE_MODE")
 	if !validateStorageMode(storageMode) {
 		log.Fatalf("Invalid STORAGE_MODE: %s", storageMode)
@@ -83,14 +86,20 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-	expoToken := GetEnv("EXPO_ACCESS_TOKEN")
-	if expoToken == "" {
-		log.Fatalf("EXPO_ACCESS_TOKEN not set")
+
+	if IsMultiAppMode() {
+		log.Printf("Multi-app mode enabled with %d apps", len(GetAllApps()))
+	} else {
+		expoToken := GetEnv("EXPO_ACCESS_TOKEN")
+		if expoToken == "" {
+			log.Fatalf("EXPO_ACCESS_TOKEN not set")
+		}
+		expoAppId := GetEnv("EXPO_APP_ID")
+		if expoAppId == "" {
+			log.Fatalf("EXPO_APP_ID not set")
+		}
 	}
-	expoAppId := GetEnv("EXPO_APP_ID")
-	if expoAppId == "" {
-		log.Fatalf("EXPO_APP_ID not set")
-	}
+
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatalf("JWT_SECRET not set")

@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/types"
@@ -26,7 +27,7 @@ type AssetsResponse struct {
 	URL         string
 }
 
-func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *types.BucketFile, string, error) {
+func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool) (AssetsResponse, *types.BucketFile, string, error) {
 	requestID := req.RequestID
 
 	if req.AssetName == "" {
@@ -44,7 +45,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
 	}
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.Branch, req.RuntimeVersion, req.Platform)
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(app, req.Branch, req.RuntimeVersion, req.Platform)
 	if err != nil || lastUpdate == nil {
 		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s", requestID, req.RuntimeVersion)
 		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
@@ -62,7 +63,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		}, nil, lastUpdate.UpdateId, nil
 	}
 
-	metadata, err := update.GetMetadata(*lastUpdate)
+	metadata, err := update.GetMetadata(app, *lastUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
 		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting metadata")}, nil, "", nil
@@ -88,7 +89,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		}
 	}
 
-	resolvedBucket := bucket.GetBucket()
+	resolvedBucket := bucket.GetBucketForApp(app)
 	asset, err := resolvedBucket.GetFile(*lastUpdate, req.AssetName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting asset: %v", requestID, err)
@@ -116,8 +117,8 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 	}, asset, lastUpdate.UpdateId, nil
 }
 
-func HandleAssetsWithFile(req AssetsRequest) (AssetsResponse, error) {
-	resp, asset, _, err := getAssetMetadata(req, true)
+func HandleAssetsWithFile(app *config.AppConfig, req AssetsRequest) (AssetsResponse, error) {
+	resp, asset, _, err := getAssetMetadata(app, req, true)
 	if err != nil {
 		return resp, err
 	}
@@ -150,8 +151,8 @@ func HandleAssetsWithFile(req AssetsRequest) (AssetsResponse, error) {
 	return resp, nil
 }
 
-func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse, error) {
-	resp, _, updateId, err := getAssetMetadata(req, false)
+func HandleAssetsWithURL(app *config.AppConfig, req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse, error) {
+	resp, _, updateId, err := getAssetMetadata(app, req, false)
 	if err != nil {
 		return resp, err
 	}
