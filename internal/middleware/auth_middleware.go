@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"expo-open-ota/config"
+	"expo-open-ota/internal/appcontext"
 	"expo-open-ota/internal/auth"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
@@ -14,7 +16,11 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		if useExpoAuth == "true" {
 			expoAuth := helpers.GetExpoAuth(r)
 			fmt.Println(expoAuth)
-			_, err := services.ValidateExpoAuth(expoAuth)
+			app := appcontext.GetAppConfig(r.Context())
+			if app == nil {
+				app = config.GetDefaultAppConfig()
+			}
+			_, err := services.ValidateExpoAuth(app, expoAuth)
 			if err != nil {
 				fmt.Println("lel", err)
 				http.Error(w, "Invalid Expo auth", http.StatusUnauthorized)

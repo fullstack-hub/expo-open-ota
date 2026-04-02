@@ -10,22 +10,22 @@ func IsDashboardEnabled() bool {
 	return config.GetEnv("USE_DASHBOARD") == "true"
 }
 
-func ComputeGetRuntimeVersionsCacheKey(branch string) string {
-	return fmt.Sprintf("dashboard:%s:request:getRuntimeVersions:%s", version.Version, branch)
+func ComputeGetRuntimeVersionsCacheKey(slug string, branch string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getRuntimeVersions:%s", version.Version, slug, branch)
 }
 
-func ComputeGetBranchesCacheKey() string {
-	return fmt.Sprintf("dashboard:%s:request:getBranches", version.Version)
+func ComputeGetBranchesCacheKey(slug string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getBranches", version.Version, slug)
 }
 
-func ComputeGetChannelsCacheKey() string {
-	return fmt.Sprintf("dashboard:%s:request:getChannels", version.Version)
+func ComputeGetChannelsCacheKey(slug string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getChannels", version.Version, slug)
 }
 
-func ComputeGetUpdatesCacheKey(branch string, runtimeVersion string) string {
-	return fmt.Sprintf("dashboard:%s:request:getUpdates:%s:%s", version.Version, branch, runtimeVersion)
+func ComputeGetUpdatesCacheKey(slug string, branch string, runtimeVersion string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdates:%s:%s", version.Version, slug, branch, runtimeVersion)
 }
 
-func ComputeGetUpdateDetailsCacheKey(branch string, runtimeVersion string, updateID string) string {
-	return fmt.Sprintf("dashboard:%s:request:getUpdateDetails:%s:%s:%s", version.Version, branch, runtimeVersion, updateID)
+func ComputeGetUpdateDetailsCacheKey(slug string, branch string, runtimeVersion string, updateID string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdateDetails:%s:%s:%s", version.Version, slug, branch, runtimeVersion, updateID)
 }

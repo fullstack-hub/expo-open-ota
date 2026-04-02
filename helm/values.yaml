@@ -187,10 +187,13 @@ environment:
     required: true
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
-    required: true
+    required: false  # Not required when APPS_CONFIG is set (multi-app mode)
   - name: "EXPO_APP_ID"
     value: ""
-    required: true
+    required: false  # Not required when APPS_CONFIG is set (multi-app mode)
+  - name: "APPS_CONFIG"
+    value: ""
+    required: false  # JSON array of app configs for multi-app mode. Example: [{"slug":"my-app","expoAppId":"...","expoAccessToken":"...","s3KeyPrefix":"my-app"}]
   - name: "JWT_SECRET"
     value: ""
     required: true

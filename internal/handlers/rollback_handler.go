@@ -14,6 +14,8 @@ import (
 
 func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	app := resolveApp(r)
+
 	vars := mux.Vars(r)
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
@@ -45,14 +47,14 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
+	errUpsert := branch.UpsertBranch(app, branchName)
 	if errUpsert != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")
-	rollback, err := update.CreateRollback(platform, commitHash, runtimeVersion, branchName)
+	rollback, err := update.CreateRollback(app, platform, commitHash, runtimeVersion, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error creating rollback: %v", requestID, err)
 		http.Error(w, "Error creating rollback", http.StatusInternalServerError)

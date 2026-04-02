@@ -1,7 +1,9 @@
 package infrastructure
 
 import (
+	"encoding/json"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/appcontext"
 	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/metrics"
@@ -33,15 +35,8 @@ func getDashboardPath() string {
 	return filepath.Join(exeDir, "apps", "dashboard", "dist")
 }
 
-func NewRouter() *mux.Router {
-	r := mux.NewRouter()
-	r.Use(middleware.LoggingMiddleware)
 
-	r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		metrics.PrometheusHandler().ServeHTTP(w, r)
-	}).Methods(http.MethodGet)
-
-	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
+func registerRoutes(r *mux.Router) {
 	r.HandleFunc("/manifest", handlers.ManifestHandler).Methods(http.MethodGet)
 	r.HandleFunc("/assets", handlers.AssetsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
@@ -54,46 +49,6 @@ func NewRouter() *mux.Router {
 	corsSubrouter.HandleFunc("/login", handlers.LoginHandler).Methods(http.MethodPost)
 	corsSubrouter.HandleFunc("/refreshToken", handlers.RefreshTokenHandler).Methods(http.MethodPost)
 
-	dashboardPath := getDashboardPath()
-
-	if dashboard.IsDashboardEnabled() {
-		r.PathPrefix("/dashboard").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get env.js
-			if r.URL.Path == "/dashboard/env.js" {
-				w.Header().Set("Content-Type", "application/javascript")
-				baseURL := config.GetEnv("BASE_URL")
-				if baseURL == "" {
-					baseURL = "http://localhost:3000"
-				}
-				w.Write([]byte(fmt.Sprintf("window.env = { VITE_OTA_API_URL: '%s' };", baseURL)))
-				return
-			}
-			if r.URL.Path == "/dashboard" {
-				target := "/dashboard/"
-				if r.URL.RawQuery != "" {
-					target += "?" + r.URL.RawQuery
-				}
-				http.Redirect(w, r, target, http.StatusMovedPermanently)
-				return
-			}
-			staticExtensions := []string{".css", ".js", ".svg", ".png", ".json", ".ico"}
-			for _, ext := range staticExtensions {
-				if len(r.URL.Path) > len(ext) && r.URL.Path[len(r.URL.Path)-len(ext):] == ext {
-					filePath := filepath.Join(dashboardPath, r.URL.Path[len("/dashboard/"):])
-					if !strings.HasPrefix(filePath, dashboardPath) {
-						http.Error(w, "Forbidden", http.StatusForbidden)
-						return
-					}
-					http.ServeFile(w, r, filePath)
-					return
-				}
-			}
-			filePath := filepath.Join(dashboardPath, "index.html")
-			fmt.Println("Serving file", filePath)
-			http.ServeFile(w, r, filePath)
-		}))
-	}
-
 	authSubrouter := r.PathPrefix("/api").Subrouter()
 	authSubrouter.Use(middleware.AuthMiddleware)
 	authSubrouter.HandleFunc("/settings", handlers.GetSettingsHandler).Methods(http.MethodGet)
@@ -103,5 +58,179 @@ func NewRouter() *mux.Router {
 	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
 	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
 	authSubrouter.HandleFunc("/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+}
+
+func NewRouter() http.Handler {
+	r := mux.NewRouter()
+	r.Use(middleware.LoggingMiddleware)
+
+	r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		metrics.PrometheusHandler().ServeHTTP(w, r)
+	}).Methods(http.MethodGet)
+
+	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
+
+	dashboardPath := getDashboardPath()
+
+
+	// Register dashboard routes BEFORE /{APP_SLUG} to avoid conflict
+	if dashboard.IsDashboardEnabled() {
+		serveDashboard := func(appSlug string) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				basePath := "/dashboard"
+				if appSlug != "" {
+					basePath = "/" + appSlug + "/dashboard"
+				} else if config.IsMultiAppMode() {
+					vars := mux.Vars(r)
+					if slug := vars["APP_SLUG"]; slug != "" {
+						appSlug = slug
+						basePath = "/" + slug + "/dashboard"
+					}
+				}
+
+				if strings.HasSuffix(r.URL.Path, "/env.js") {
+					w.Header().Set("Content-Type", "application/javascript")
+					baseURL := config.GetEnv("BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://localhost:3000"
+					}
+					apiURL := baseURL
+					if appSlug != "" {
+						apiURL = baseURL + "/" + appSlug
+					}
+					dashboardBasename := "/dashboard"
+						if appSlug != "" {
+							dashboardBasename = "/" + appSlug + "/dashboard"
+						}
+						w.Write([]byte(fmt.Sprintf("window.env = { VITE_OTA_API_URL: '%s', VITE_DASHBOARD_BASENAME: '%s' };", apiURL, dashboardBasename)))
+					return
+				}
+				if r.URL.Path == basePath {
+					target := basePath + "/"
+					if r.URL.RawQuery != "" {
+						target += "?" + r.URL.RawQuery
+					}
+					http.Redirect(w, r, target, http.StatusMovedPermanently)
+					return
+				}
+				staticExtensions := []string{".css", ".js", ".svg", ".png", ".json", ".ico"}
+				for _, ext := range staticExtensions {
+					if len(r.URL.Path) > len(ext) && r.URL.Path[len(r.URL.Path)-len(ext):] == ext {
+						relPath := strings.TrimPrefix(r.URL.Path, basePath+"/")
+						// Also try stripping /dashboard/ for absolute paths from HTML
+						if strings.HasPrefix(r.URL.Path, "/dashboard/") && basePath != "/dashboard" {
+							relPath = strings.TrimPrefix(r.URL.Path, "/dashboard/")
+						}
+						filePath := filepath.Join(dashboardPath, relPath)
+						if !strings.HasPrefix(filePath, dashboardPath) {
+							http.Error(w, "Forbidden", http.StatusForbidden)
+							return
+						}
+						http.ServeFile(w, r, filePath)
+						return
+					}
+				}
+				filePath := filepath.Join(dashboardPath, "index.html")
+				http.ServeFile(w, r, filePath)
+			}
+		}
+
+		if config.IsMultiAppMode() {
+			// Serve dashboard under /{appSlug}/dashboard for each app
+			for _, app := range config.GetAllApps() {
+				r.PathPrefix("/" + app.Slug + "/dashboard").HandlerFunc(serveDashboard(app.Slug))
+			}
+			// /dashboard/ static files are handled by middleware above
+		} else {
+			r.PathPrefix("/dashboard").HandlerFunc(serveDashboard(""))
+		}
+	}
+
+	if config.IsMultiAppMode() {
+		// Multi-app mode: register routes for each configured app explicitly
+		for _, app := range config.GetAllApps() {
+			appRouter := r.PathPrefix("/" + app.Slug).Subrouter()
+			appCopy := app
+			appRouter.Use(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					ctx := appcontext.WithAppConfig(r.Context(), &appCopy)
+					next.ServeHTTP(w, r.WithContext(ctx))
+				})
+			})
+			registerRoutes(appRouter)
+		}
+
+		// List available apps at root
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			apps := config.GetAllApps()
+			slugs := make([]string, len(apps))
+			for i, app := range apps {
+				slugs[i] = app.Slug
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"mode":"multi-app","apps":%s}`, mustJSON(slugs))
+		}).Methods(http.MethodGet)
+	} else {
+		// Single-app mode: routes at root (backward compatible)
+		registerRoutes(r)
+	}
+
+	// Wrap router with dashboard static file handler for multi-app mode
+	if dashboard.IsDashboardEnabled() && config.IsMultiAppMode() {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if strings.HasPrefix(req.URL.Path, "/dashboard/") || req.URL.Path == "/dashboard" {
+				// env.js is dynamically generated
+				if strings.HasSuffix(req.URL.Path, "/env.js") {
+					apps := config.GetAllApps()
+					slug := ""
+					if len(apps) > 0 {
+						slug = apps[0].Slug
+					}
+					w.Header().Set("Content-Type", "application/javascript")
+					baseURL := config.GetEnv("BASE_URL")
+					apiURL := baseURL
+					if slug != "" {
+						apiURL = baseURL + "/" + slug
+					}
+					dashboardBasename := "/dashboard"
+						if slug != "" {
+							dashboardBasename = "/" + slug + "/dashboard"
+						}
+						w.Write([]byte(fmt.Sprintf("window.env = { VITE_OTA_API_URL: '%s', VITE_DASHBOARD_BASENAME: '%s' };", apiURL, dashboardBasename)))
+					return
+				}
+				// Static files
+				staticExtensions := []string{".css", ".js", ".svg", ".png", ".json", ".ico"}
+				for _, ext := range staticExtensions {
+					if strings.HasSuffix(req.URL.Path, ext) {
+						relPath := strings.TrimPrefix(req.URL.Path, "/dashboard/")
+						filePath := filepath.Join(dashboardPath, relPath)
+						if strings.HasPrefix(filePath, dashboardPath) {
+							http.ServeFile(w, req, filePath)
+							return
+						}
+					}
+				}
+				// Redirect /dashboard to first app dashboard
+				if req.URL.Path == "/dashboard" || req.URL.Path == "/dashboard/" {
+					apps := config.GetAllApps()
+					if len(apps) > 0 {
+						http.Redirect(w, req, "/"+apps[0].Slug+"/dashboard/", http.StatusFound)
+						return
+					}
+				}
+			}
+			r.ServeHTTP(w, req)
+		})
+	}
+
 	return r
+}
+
+func mustJSON(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }

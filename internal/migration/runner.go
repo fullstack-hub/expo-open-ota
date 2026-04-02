@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/cache"
 	"fmt"
@@ -61,19 +62,41 @@ func RollbackLastMigration(b bucket.Bucket) error {
 
 func RunMigrationsWithLock() {
 	log.Println("🔧 Checking if migrations should run...")
-	b := bucket.GetBucket()
 	c := cache.GetCache()
-	ok, err := c.TryLock("migration-lock", 120)
-	if err != nil {
-		log.Fatalf("❌ Failed to acquire migration lock: %v", err)
+
+	if config.IsMultiAppMode() {
+		for _, app := range config.GetAllApps() {
+			appCopy := app
+			b := bucket.GetBucketForApp(&appCopy)
+			lockKey := fmt.Sprintf("migration-lock:%s", app.Slug)
+			ok, err := c.TryLock(lockKey, 120)
+			if err != nil {
+				log.Fatalf("❌ Failed to acquire migration lock for app %s: %v", app.Slug, err)
+			}
+			if !ok {
+				log.Printf("⏩ Migration already in progress for app %s – skipping.", app.Slug)
+				continue
+			}
+			log.Printf("✅ Migration lock acquired for app %s – starting migrations...", app.Slug)
+			if err := RunMigrations(b); err != nil {
+				log.Fatalf("🚨 Migration failed for app %s: %v", app.Slug, err)
+			}
+			log.Printf("🎉 Migrations completed for app %s.", app.Slug)
+		}
+	} else {
+		b := bucket.GetBucket()
+		ok, err := c.TryLock("migration-lock", 120)
+		if err != nil {
+			log.Fatalf("❌ Failed to acquire migration lock: %v", err)
+		}
+		if !ok {
+			log.Println("⏩ Migration already in progress or completed on another instance – skipping.")
+			return
+		}
+		log.Println("✅ Migration lock acquired – starting migrations...")
+		if err := RunMigrations(b); err != nil {
+			log.Fatalf("🚨 Migration failed: %v", err)
+		}
+		log.Println("🎉 Migrations completed successfully.")
 	}
-	if !ok {
-		log.Println("⏩ Migration already in progress or completed on another instance – skipping.")
-		return
-	}
-	log.Println("✅ Migration lock acquired – starting migrations...")
-	if err := RunMigrations(b); err != nil {
-		log.Fatalf("🚨 Migration failed: %v", err)
-	}
-	log.Println("🎉 Migrations completed successfully.")
 }

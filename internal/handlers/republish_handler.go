@@ -15,6 +15,8 @@ import (
 
 func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	app := resolveApp(r)
+
 	vars := mux.Vars(r)
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
@@ -53,7 +55,7 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(app, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
@@ -70,13 +72,13 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No update found", http.StatusNotFound)
 		return
 	}
-	updateType := update2.GetUpdateType(*update)
+	updateType := update2.GetUpdateType(app, *update)
 	if updateType != types2.NormalUpdate {
 		log.Printf("[RequestID: %s] Update type is not normal update", requestID)
 		http.Error(w, "Update type is not normal update", http.StatusBadRequest)
 		return
 	}
-	storedMetadata, err := update2.RetrieveUpdateStoredMetadata(*update)
+	storedMetadata, err := update2.RetrieveUpdateStoredMetadata(app, *update)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error retrieving update commit hash and platform: %v", requestID, err)
 		http.Error(w, "Error retrieving update commit hash and platform", http.StatusInternalServerError)
@@ -87,7 +89,7 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No stored metadata found for update", http.StatusNotFound)
 		return
 	}
-	isValid := update2.IsUpdateValid(*update)
+	isValid := update2.IsUpdateValid(app, *update)
 	if !isValid {
 		log.Printf("[RequestID: %s] Update is not valid", requestID)
 		http.Error(w, "Update is not valid", http.StatusBadRequest)
@@ -98,7 +100,7 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Update platform mismatch", http.StatusBadRequest)
 		return
 	}
-	newUpdate, err := update2.RepublishUpdate(update, platform, commitHash)
+	newUpdate, err := update2.RepublishUpdate(app, update, platform, commitHash)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error republishing update: %v", requestID, err)
 		http.Error(w, "Error republishing update", http.StatusInternalServerError)

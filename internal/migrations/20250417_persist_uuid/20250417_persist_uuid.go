@@ -36,7 +36,7 @@ func init() {
 					}
 					for _, update := range updates {
 						fmt.Println("Processing update:", update.UpdateId)
-						storedMetadata, err := update2.RetrieveUpdateStoredMetadata(update)
+						storedMetadata, err := update2.RetrieveUpdateStoredMetadata(nil, update)
 						if storedMetadata == nil {
 							fmt.Println("Update UUID already exists, skipping:", update.UpdateId)
 							continue

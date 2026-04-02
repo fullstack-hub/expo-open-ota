@@ -11,7 +11,7 @@ const queryClient = new QueryClient();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename="/dashboard">
+      <BrowserRouter basename={(window as any).env?.VITE_DASHBOARD_BASENAME || "/dashboard"}>
         <App />
       </BrowserRouter>
     </QueryClientProvider>
