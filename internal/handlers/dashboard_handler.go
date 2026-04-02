@@ -58,6 +58,8 @@ type SettingsEnv struct {
 	CACHE_MODE                             string `json:"CACHE_MODE"`
 	REDIS_HOST                             string `json:"REDIS_HOST"`
 	REDIS_PORT                             string `json:"REDIS_PORT"`
+	REDIS_SENTINEL_ADDRS                   string `json:"REDIS_SENTINEL_ADDRS"`
+	REDIS_SENTINEL_MASTER_NAME             string `json:"REDIS_SENTINEL_MASTER_NAME"`
 	STORAGE_MODE                           string `json:"STORAGE_MODE"`
 	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
@@ -112,6 +114,8 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
+		REDIS_SENTINEL_ADDRS:                   config.GetEnv("REDIS_SENTINEL_ADDRS"),
+		REDIS_SENTINEL_MASTER_NAME:             config.GetEnv("REDIS_SENTINEL_MASTER_NAME"),
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
