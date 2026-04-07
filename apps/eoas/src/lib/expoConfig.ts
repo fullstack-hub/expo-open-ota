@@ -275,7 +275,9 @@ export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
   let baseUrl: string;
   try {
     const parsedUrl = new URL(updateUrl);
-    baseUrl = parsedUrl.origin;
+    // Preserve pathname (excluding trailing /manifest) to support multi-app URL prefixes
+    let pathname = parsedUrl.pathname.replace(/\/manifest\/?$/, '').replace(/\/+$/, '');
+    baseUrl = parsedUrl.origin + pathname;
   } catch (e) {
     throw new Error('Invalid update URL.');
   }
