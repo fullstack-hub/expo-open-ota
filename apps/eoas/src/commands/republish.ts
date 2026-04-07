@@ -73,7 +73,8 @@ export default class Publish extends Command {
     let baseUrl: string;
     try {
       const parsedUrl = new URL(updateUrl);
-      baseUrl = parsedUrl.origin;
+      const pathname = parsedUrl.pathname.replace(/\/manifest\/?$/, '').replace(/\/+$/, '');
+      baseUrl = parsedUrl.origin + pathname;
     } catch (e) {
       Log.error('Invalid URL', e);
       process.exit(1);
