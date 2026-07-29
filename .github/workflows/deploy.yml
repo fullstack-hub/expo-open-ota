@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache: true
+          cache: false
 
       - name: Go vet and test
         run: |
@@ -33,10 +33,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: |
-            apps/eoas/package-lock.json
-            apps/dashboard/package-lock.json
 
       - name: Validate EOAS CLI
         working-directory: apps/eoas
