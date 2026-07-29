@@ -82,7 +82,8 @@ jobs:
           ecr_password=$(aws ecr get-login-password --region "$AWS_REGION")
           ecr_auth=$(printf 'AWS:%s' "$ecr_password" | base64 | tr -d '\n')
           jq -nc --arg registry "$ECR_REGISTRY" --arg auth "$ecr_auth" \
-            '{auths:{($registry):{auth:$auth}}}' \
+            --arg plugin_dir "$HOME/.docker/cli-plugins" \
+            '{auths:{($registry):{auth:$auth}},cliPluginsExtraDirs:[$plugin_dir]}' \
             > "$RUNNER_TEMP/docker-config/config.json"
           unset ecr_password ecr_auth
 
