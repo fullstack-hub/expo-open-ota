@@ -79,10 +79,12 @@ jobs:
       - name: Configure headless ECR login
         run: |
           mkdir -p "$RUNNER_TEMP/docker-config"
-          printf '{"auths":{}}' > "$RUNNER_TEMP/docker-config/config.json"
-          aws ecr get-login-password --region "$AWS_REGION" |
-            docker --config "$RUNNER_TEMP/docker-config" login \
-              --username AWS --password-stdin "$ECR_REGISTRY"
+          ecr_password=$(aws ecr get-login-password --region "$AWS_REGION")
+          ecr_auth=$(printf 'AWS:%s' "$ecr_password" | base64 | tr -d '\n')
+          jq -nc --arg registry "$ECR_REGISTRY" --arg auth "$ecr_auth" \
+            '{auths:{($registry):{auth:$auth}}}' \
+            > "$RUNNER_TEMP/docker-config/config.json"
+          unset ecr_password ecr_auth
 
       - uses: docker/setup-buildx-action@v3
         with:
