@@ -3,7 +3,11 @@ import { Command, Flags } from '@oclif/core';
 import ora from 'ora';
 
 import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
-import { getExpoConfigUpdateUrl, getPrivateExpoConfigAsync } from '../lib/expoConfig';
+import {
+  getExpoConfigUpdateUrl,
+  getPrivateExpoConfigAsync,
+  requireExpoAppId,
+} from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
 import { isExpoInstalled } from '../lib/package';
@@ -37,8 +41,8 @@ export default class Publish extends Command {
   }
   public async run(): Promise<void> {
     const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    if (!credentials.token) {
+      Log.error('No credentials found. Set the OTA_PUBLISH_TOKEN environment variable.');
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
@@ -70,18 +74,21 @@ export default class Publish extends Command {
       );
       process.exit(1);
     }
+    const appId = requireExpoAppId(privateConfig);
     let baseUrl: string;
     try {
       const parsedUrl = new URL(updateUrl);
-      const pathname = parsedUrl.pathname.replace(/\/manifest\/?$/, '').replace(/\/+$/, '');
-      baseUrl = parsedUrl.origin + pathname;
+      baseUrl = parsedUrl.origin;
     } catch (e) {
       Log.error('Invalid URL', e);
       process.exit(1);
     }
-    const runtimeVersionsEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersions`;
+    const runtimeVersionsEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersions`;
     const response = await fetchWithRetries(runtimeVersionsEndpoint, {
-      headers: { ...getAuthExpoHeaders(credentials), 'use-expo-auth': 'true' },
+      headers: {
+        ...getAuthExpoHeaders(credentials),
+        'use-expo-auth': 'true',
+      },
     });
     if (!response.ok) {
       Log.error(`Failed to fetch runtime versions: ${await response.text()}`);
@@ -111,9 +118,12 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Selected runtime version: ${selectedRuntimeVersion.runtimeVersion}`);
-    const updatesEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
+    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
     const updatesResponse = await fetchWithRetries(updatesEndpoint, {
-      headers: { ...getAuthExpoHeaders(credentials), 'use-expo-auth': 'true' },
+      headers: {
+        ...getAuthExpoHeaders(credentials),
+        'use-expo-auth': 'true',
+      },
     });
     if (!updatesResponse.ok) {
       Log.error(`Failed to fetch updates: ${await updatesResponse.text()}`);
@@ -141,7 +151,7 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
-    const republishUrl = new URL(`${baseUrl}/republish/${branch}`);
+    const republishUrl = new URL(`${baseUrl}/${appId}/republish/${branch}`);
     republishUrl.searchParams.set('platform', platform);
     republishUrl.searchParams.set('runtimeVersion', selectedRuntimeVersion.runtimeVersion);
     republishUrl.searchParams.set('updateId', selectedUpdated.update.updateId);

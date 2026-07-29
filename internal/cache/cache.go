@@ -19,8 +19,9 @@ type Cache interface {
 type CacheType string
 
 const (
-	LocalCacheType CacheType = "local"
-	RedisCacheType CacheType = "redis"
+	LocalCacheType         CacheType = "local"
+	RedisCacheType         CacheType = "redis"
+	RedisSentinelCacheType CacheType = "redis-sentinel"
 )
 
 const defaultPrefix = "expoopenota"
@@ -33,10 +34,6 @@ func withPrefix(key string) string {
 	return prefix + ":" + key
 }
 
-const (
-	RedisSentinelCacheType CacheType = "redis-sentinel"
-)
-
 func ResolveCacheType() CacheType {
 	cacheType := config.GetEnv("CACHE_MODE")
 	switch cacheType {
@@ -47,6 +44,18 @@ func ResolveCacheType() CacheType {
 	default:
 		return LocalCacheType
 	}
+}
+
+func parseSentinelAddrs(addrs string) []string {
+	parts := strings.Split(addrs, ",")
+	sentinelAddrs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		addr := strings.TrimSpace(part)
+		if addr != "" {
+			sentinelAddrs = append(sentinelAddrs, addr)
+		}
+	}
+	return sentinelAddrs
 }
 
 var (
@@ -70,7 +79,10 @@ func GetCache() Cache {
 			cacheInstance = NewRedisCache(host, password, port, useTLS, username, caCertB64)
 		case RedisSentinelCacheType:
 			sentinelAddrsStr := config.GetEnv("REDIS_SENTINEL_ADDRS")
-			sentinelAddrs := strings.Split(sentinelAddrsStr, ",")
+			sentinelAddrs := parseSentinelAddrs(sentinelAddrsStr)
+			if len(sentinelAddrs) == 0 {
+				panic("REDIS_SENTINEL_ADDRS must contain at least one Sentinel address")
+			}
 			masterName := config.GetEnv("REDIS_SENTINEL_MASTER_NAME")
 			if masterName == "" {
 				masterName = "mymaster"

@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  env: local
+  repository: expo-open-ota
+  pullPolicy: Never
+  tag: latest
+
+# 로컬은 ConfigMap/Secret 모두 미사용 — env 리스트로만 주입
+configMaps:
+  common: ""
+  environment: ""
+secrets:
+  environment: ""
+
+# helm 이 ConfigMap 을 만들지 않도록 빈 맵으로
+configMapData: {}
+
+# 로컬은 IRSA 미사용
+serviceAccount:
+  annotations: {}
+
+env:
+  - name: PORT
+    value: "3000"
+  - name: USE_DASHBOARD
+    value: "true"
+  - name: STORAGE_MODE
+    value: "local"
+  - name: KEYS_STORAGE_TYPE
+    value: "local"
+  - name: CACHE_MODE
+    value: "local"
+  - name: BASE_URL
+    value: "http://localhost:3000"

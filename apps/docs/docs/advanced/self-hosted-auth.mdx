@@ -1,0 +1,102 @@
+---
+sidebar_position: 4
+---
+
+# Self-hosted auth & channels (no api.expo.dev)
+
+This build does **not call api.expo.dev at all**. Everything the upstream
+project delegated to Expo is self-hosted:
+
+| Concern | Upstream (EAS-backed) | This build |
+| --- | --- | --- |
+| Publisher auth | Expo account check (`accessToken` + `eas login`) | Publish token, verbatim compare against `publishTokens` |
+| Channel → branch | Expo branch mapping API | `channels` map in `EXPO_APPS_JSON`, fallback channel==branch |
+| Branch registry | Created/listed on expo.dev | Bucket directories (created implicitly on upload) |
+| CI secret | `EXPO_TOKEN` | `OTA_PUBLISH_TOKEN` |
+
+Restoring the EAS integration = reverting the PR that introduced
+`internal/services/expo_local.go` (it replaced `expo.go` with identical
+function signatures, so nothing else changed).
+
+## Publish tokens
+
+Each app lists its accepted publish tokens. Tokens are **opaque to the
+server**: an incoming `Authorization: Bearer` value is compared verbatim
+(constant-time) against the configured entries. The server knows nothing
+about how a token was generated — random string, shared secret, derived
+value — so auth strength is purely the token's entropy. Use a high-entropy
+random value:
+
+```bash
+TOKEN=$(openssl rand -hex 32)
+echo "Set this in BOTH the CI secret (OTA_PUBLISH_TOKEN) and publishTokens: $TOKEN"
+```
+
+App entry in `EXPO_APPS_JSON`:
+
+```json
+[
+  {
+    "id": "a45ed151-0387-4419-a97c-d008d8f214c7",
+    "name": "My App",
+    "publishTokens": ["f3a9c1e87d2b40c69f1e5d8a7b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c"],
+    "channels": { "production": "main", "staging": "develop" },
+    "keys": { "mode": "local", "publicPath": "/keys/public.pem", "privatePath": "/keys/private.pem" }
+  }
+]
+```
+
+- The same value lives in two places: the CI secret store
+  (`OTA_PUBLISH_TOKEN`) and the server config (`publishTokens`). Keep it out
+  of git, logs, and wikis. Note that `EXPO_APPS_JSON` already carries the
+  code-signing key configuration, so it must be handled as a secret of that
+  grade regardless of publish tokens.
+- Omitting `publishTokens` makes the app **read-only**: it still serves
+  manifests and assets, but every publish attempt fails auth.
+- Multiple entries are allowed for zero-downtime rotation.
+- `accessToken` keys left in existing configs are ignored (unknown JSON keys
+  are tolerated) — remove them at your convenience.
+- Single-app flat env deployments use `PUBLISH_TOKENS` (comma-separated)
+  next to `EXPO_APP_ID`.
+
+The eoas CLI authenticates with `OTA_PUBLISH_TOKEN` only — `EXPO_TOKEN` and
+`eas login` sessions are not read anymore (the server wouldn't accept them).
+
+```bash
+OTA_PUBLISH_TOKEN=<token> npx eoas publish --branch production --nonInteractive
+```
+
+### Token rotation
+
+1. Generate a new token.
+2. **Append** it to `publishTokens` (old one stays) and redeploy.
+3. Swap the CI secret `OTA_PUBLISH_TOKEN` to the new token.
+4. Remove the old entry and redeploy.
+
+Watch for a spike in 401s on publish endpoints — that signals a missed
+rotation step (or someone probing with a stale token).
+
+## Channel → branch mapping
+
+Devices send a channel name; updates are stored per branch. The mapping is the
+optional `channels` map in each app's config entry:
+
+- **No map, or channel not listed → channel == branch.** If your channels and
+  branches share names (the common setup), you don't need `channels` at all.
+- Changing a mapping (e.g. promoting a tested branch to the production
+  channel) = edit `EXPO_APPS_JSON` + redeploy. There is no runtime mutation:
+  the dashboard's channel-mapping editor returns an error by design, so an
+  edit can never silently diverge from the config.
+- An unknown channel no longer 404s ("No branch mapping found") — it falls
+  back to channel==branch and serves `NoUpdateAvailable` if that branch has no
+  updates.
+
+## Other behavior differences vs upstream
+
+- `expo-session` credentials (interactive `eas login` sessions) are rejected
+  with 401 on publish endpoints — use a publish token.
+- Dashboard branch listings come from the bucket as before; only branches
+  pointed at by a configured channel show a `branchId`/`releaseChannel`.
+- Branches and channels are never created or reflected on expo.dev.
+- The upload-token JWT `sub` claim is the app id (upstream used the Expo
+  account username).

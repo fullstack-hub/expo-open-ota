@@ -1,18 +1,24 @@
+// expo.go used to be the api.expo.dev GraphQL client (see the upstream
+// expo-open-ota project). This build replaces every function body with a
+// fully self-hosted equivalent, keeping every exported name and signature so
+// no call site changes:
+//
+//   - publisher auth   : per-app publishTokens (opaque secrets) in config
+//   - channel mapping  : per-app channels map in config, fallback channel==branch
+//   - branch registry  : none — branches are bucket prefixes created on upload
+//   - usernames        : the appId itself (feeds the upload-token JWT sub)
+//
+// Going back to the EAS-backed integration = git revert of this change.
 package services
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
+	"crypto/subtle"
 	"errors"
 	"expo-open-ota/config"
-	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/version"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
+	"sort"
 )
 
 type ExpoUserAccount struct {
@@ -38,500 +44,128 @@ type ExpoChannel struct {
 	BranchId string `json:"branchId"`
 }
 
-type BranchMapping struct {
-	Version int `json:"version"`
-	Data    []struct {
-		BranchId           string          `json:"branchId"`
-		BranchMappingLogic json.RawMessage `json:"branchMappingLogic"`
-	} `json:"data"`
-}
-
-func resolveAppConfig(app *config.AppConfig) (string, string) {
-	if app != nil && app.ExpoAppId != "" {
-		return app.ExpoAppId, app.ExpoAccessToken
-	}
-	return config.GetEnv("EXPO_APP_ID"), config.GetEnv("EXPO_ACCESS_TOKEN")
-}
-
-func ValidateExpoAuth(app *config.AppConfig, expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
-	if expoAuth.Token == nil && expoAuth.SessionSecret == nil {
-		return nil, errors.New("no valid Expo auth provided")
-	}
-	expoAccount, err := FetchExpoUserAccountInformations(expoAuth)
-	if err != nil {
-		return nil, err
-	}
-	if expoAccount == nil {
-		return nil, errors.New("no expo account found")
-	}
-	selfExpoUsername := FetchSelfExpoUsername(app)
-	if selfExpoUsername != expoAccount.Username {
-		return nil, errors.New("expo account does not match self expo username")
-	}
-	return expoAccount, nil
-}
-
-func GetExpoAccessToken() string {
-	return config.GetEnv("EXPO_ACCESS_TOKEN")
-}
-
-func GetExpoAppId() string {
-	return config.GetEnv("EXPO_APP_ID")
-}
-
-func SetAuthHeaders(expoAuth types.ExpoAuth, req *http.Request) {
-	if expoAuth.Token != nil {
-		req.Header.Set("Authorization", "Bearer "+*expoAuth.Token)
-	}
+// ValidateExpoAuth authenticates publish calls (upload/rollback/republish and
+// the dashboard Use-Expo-Auth relay) against the app's publishTokens. The
+// check is per-app, so a token for app A can never publish to app B.
+//
+// Tokens are opaque to the server: the incoming token is compared verbatim
+// against the configured entries, so how a token was generated (random,
+// shared secret, derived) is entirely the operator's choice. Auth strength
+// is the token's entropy — EXPO_APPS_JSON already carries the code-signing
+// key config, so it is treated as a secret of that grade regardless.
+func ValidateExpoAuth(appId string, expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
 	if expoAuth.SessionSecret != nil {
-		req.Header.Set("expo-session", *expoAuth.SessionSecret)
+		return nil, errors.New("expo-session auth is not supported; use a publish token")
 	}
-}
-
-func makeGraphQLRequest(ctx context.Context, query string, variables map[string]interface{}, expoAuth types.ExpoAuth, result interface{}, headers map[string]string) error {
-	requestBody := map[string]interface{}{
-		"query":     query,
-		"variables": variables,
+	if expoAuth.Token == nil || *expoAuth.Token == "" {
+		return nil, errors.New("no publish token provided")
 	}
-
-	bodyBytes, err := json.Marshal(requestBody)
+	app, err := config.GetAppConfig(appId)
 	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.expo.dev/graphql", bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	SetAuthHeaders(expoAuth, req)
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		responseBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return errors.New("GraphQL request failed with status: " + resp.Status + " and unable to read response body")
-		}
-		return errors.New("GraphQL request failed with status: " + resp.Status + " message: " + string(responseBody))
-	}
-
-	return json.NewDecoder(resp.Body).Decode(result)
-}
-
-func FetchExpoChannels(app *config.AppConfig) ([]ExpoChannel, error) {
-	query := `
-		query FetchAppChannel($appId: String!) {
-			app {
-				byId(appId: $appId) {
-					id
-					updateChannels(offset: 0, limit: 10000) {
-						id
-						name
-					}
-				}
-			}
-		}
-	`
-	appId, expoToken := resolveAppConfig(app)
-	variables := map[string]interface{}{
-		"appId": appId,
-	}
-	var resp struct {
-		Data struct {
-			App struct {
-				ById struct {
-					UpdateChannels []ExpoChannel `json:"updateChannels"`
-				} `json:"byId"`
-			} `json:"app"`
-		} `json:"data"`
-	}
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "FetchExpoChannels"
-	}
-	ctx := context.Background()
-	if err := makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{
-		Token: &expoToken,
-	}, &resp, headers); err != nil {
 		return nil, err
 	}
-	return resp.Data.App.ById.UpdateChannels, nil
+	for _, candidate := range app.PublishTokens {
+		if subtle.ConstantTimeCompare([]byte(candidate), []byte(*expoAuth.Token)) == 1 {
+			return &ExpoUserAccount{Id: appId, Username: appId}, nil
+		}
+	}
+	return nil, errors.New("invalid publish token")
 }
 
-func UpdateChannelBranchMapping(app *config.AppConfig, channelName, branchId string) error {
-	fmt.Println("Updating channel branch mapping for channel:", channelName, "to branch:", branchId)
-	query := `
-		mutation UpdateChannelBranchMapping($channelId: ID!, $branchMapping: String!) {
-			updateChannel {
-				editUpdateChannel(channelId: $channelId, branchMapping: $branchMapping) {
-					id
-				}
-			}
-		}
-	`
-	branchMapping := BranchMapping{
-		Version: 0,
-		Data: []struct {
-			BranchId           string          `json:"branchId"`
-			BranchMappingLogic json.RawMessage `json:"branchMappingLogic"`
-		}{
-			{
-				BranchId:           branchId,
-				BranchMappingLogic: json.RawMessage(`"true"`),
-			},
-		},
-	}
+// FetchSelfExpoUsername feeds the upload-token JWT sub claim in localBucket;
+// returning the appId keeps issuance and validation consistent without any
+// external lookup.
+func FetchSelfExpoUsername(appId string) string {
+	return appId
+}
 
-	branchMappingBytes, err := json.Marshal(branchMapping)
+// ComputeChannelMappingCacheKey is kept because the dashboard handler deletes
+// this key after mapping updates. Mapping resolution itself no longer uses the
+// cache (config lives in memory), so the delete is a harmless no-op.
+func ComputeChannelMappingCacheKey(appId, channelName string) string {
+	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appId, channelName)
+}
+
+// FetchExpoChannelMapping resolves a client channel to a branch: the app's
+// channels map first, then the EAS convention fallback channel==branch.
+func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, error) {
+	if channelName == "" {
+		return nil, errors.New("no channel name provided")
+	}
+	app, err := config.GetAppConfig(appId)
 	if err != nil {
-		return err
-	}
-
-	variables := map[string]interface{}{
-		"channelId":     channelName,
-		"branchMapping": string(branchMappingBytes),
-	}
-
-	_, token := resolveAppConfig(app)
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "UpdateChannelBranchMapping"
-	}
-	ctx := context.Background()
-	resp := struct{}{}
-	return makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{
-		Token: &token,
-	}, &resp, headers)
-}
-
-func FetchExpoBranches(app *config.AppConfig) ([]string, error) {
-	query := `
-		query FetchAppChannel($appId: String!) {
-			app {
-				byId(appId: $appId) {
-					id
-					updateBranches(offset: 0, limit: 10000) {
-						id
-						name
-					}
-				}
-			}
-		}
-	`
-	appId, expoToken := resolveAppConfig(app)
-	variables := map[string]interface{}{
-		"appId": appId,
-	}
-	var resp struct {
-		Data struct {
-			App struct {
-				ById struct {
-					UpdateBranches []struct {
-						ID   string `json:"id"`
-						Name string `json:"name"`
-					} `json:"updateBranches"`
-				} `json:"byId"`
-			} `json:"app"`
-		} `json:"data"`
-	}
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "FetchExpoBranches"
-	}
-	ctx := context.Background()
-	if err := makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{
-		Token: &expoToken,
-	}, &resp, headers); err != nil {
 		return nil, err
 	}
-	var branches []string
-	for _, branch := range resp.Data.App.ById.UpdateBranches {
-		branches = append(branches, branch.Name)
+	branch := app.Channels[channelName]
+	if branch == "" {
+		branch = channelName
 	}
-	return branches, nil
+	return &ExpoChannelMapping{Id: channelName, BranchName: branch}, nil
 }
 
-func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
-	query := `
-		query GetCurrentUserAccount {
-			me {
-				id
-				username
-				email
-			}
-		}
-	`
-
-	var resp struct {
-		Data struct {
-			Me ExpoUserAccount `json:"me"`
-		} `json:"data"`
-	}
-
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "FetchExpoUserAccountInformations"
-	}
-
-	ctx := context.Background()
-	if err := makeGraphQLRequest(ctx, query, nil, expoAuth, &resp, headers); err != nil {
-		return nil, err
-	}
-
-	return &resp.Data.Me, nil
-}
-
-func FetchSelfExpoUsername(app *config.AppConfig) string {
-	_, token := resolveAppConfig(app)
-	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
-		Token: &token,
-	})
+func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
+	app, err := config.GetAppConfig(appId)
 	if err != nil {
-		return ""
-	}
-	return expoAccount.Username
-}
-
-func ComputeChannelMappingCacheKey(app *config.AppConfig, channelName string) string {
-	appSlug := ""
-	if app != nil {
-		appSlug = app.Slug
-	}
-	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appSlug, channelName)
-}
-
-func FetchExpoChannelMapping(app *config.AppConfig, channelName string) (*ExpoChannelMapping, error) {
-	cache := cache2.GetCache()
-	cacheKey := ComputeChannelMappingCacheKey(app, channelName)
-	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
-		var mapping ExpoChannelMapping
-		if err := json.Unmarshal([]byte(cachedValue), &mapping); err != nil {
-			log.Printf("[ChannelMapping] cache unmarshal error for key=%s: %v", cacheKey, err)
-		} else {
-			return &mapping, nil
-		}
-	}
-
-	query := `
-		query FetchAppChannel($appId: String!, $channelName: String!) {
-			app {
-				byId(appId: $appId) {
-					id
-					updateBranches(offset: 0, limit: 10000) {
-						id
-						name
-					}
-					updateChannelByName(name: $channelName) {
-						id
-						name
-						branchMapping
-					}
-				}
-			}
-		}
-	`
-
-	appId, expoToken := resolveAppConfig(app)
-	variables := map[string]interface{}{
-		"appId":       appId,
-		"channelName": channelName,
-	}
-
-	var resp struct {
-		Data struct {
-			App struct {
-				ById struct {
-					UpdateBranches []struct {
-						ID   string `json:"id"`
-						Name string `json:"name"`
-					} `json:"updateBranches"`
-					UpdateChannelByName struct {
-						ID            string `json:"id"`
-						BranchMapping string `json:"branchMapping"`
-					} `json:"updateChannelByName"`
-				} `json:"byId"`
-			} `json:"app"`
-		} `json:"data"`
-	}
-
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "FetchExpoChannelMapping"
-	}
-	ctx := context.Background()
-	if err := makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{Token: &expoToken}, &resp, headers); err != nil {
 		return nil, err
 	}
+	channels := make([]ExpoChannel, 0, len(app.Channels))
+	for name, branch := range app.Channels {
+		channels = append(channels, ExpoChannel{Id: name, Name: name, BranchId: branch})
+	}
+	sort.Slice(channels, func(i, j int) bool { return channels[i].Name < channels[j].Name })
+	return channels, nil
+}
 
-	var branchMapping BranchMapping
-	if err := json.Unmarshal([]byte(resp.Data.App.ById.UpdateChannelByName.BranchMapping), &branchMapping); err != nil {
+// FetchExpoBranches returns nothing: its only caller is branch.UpsertBranch,
+// which then calls CreateBranch (a no-op) — branches are implicit bucket
+// prefixes created on first upload. The dashboard lists branches straight
+// from the bucket (GetBranchesHandler), not through this function.
+func FetchExpoBranches(appId string) ([]string, error) {
+	if _, err := config.GetAppConfig(appId); err != nil {
 		return nil, err
 	}
+	return nil, nil
+}
 
-	var branchID string
-	for _, mapping := range branchMapping.Data {
-		var logic string
-		if json.Unmarshal(mapping.BranchMappingLogic, &logic) == nil && logic == "true" {
-			branchID = mapping.BranchId
-			break
+// FetchExpoBranchesMapping reports which branches are pointed at by a
+// configured channel. Branch ids ARE branch names here. The dashboard merges
+// this with the bucket's branch list, so branches without a channel still
+// show up (with null branchId/releaseChannel).
+func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
+	app, err := config.GetAppConfig(appId)
+	if err != nil {
+		return nil, err
+	}
+	branchToChannels := make(map[string][]string)
+	for channelName, branchName := range app.Channels {
+		branchToChannels[branchName] = append(branchToChannels[branchName], channelName)
+	}
+	branches := make([]string, 0, len(branchToChannels))
+	for branch := range branchToChannels {
+		branches = append(branches, branch)
+	}
+	sort.Strings(branches)
+	var result []ExpoBranchMapping
+	for _, branch := range branches {
+		channelNames := branchToChannels[branch]
+		sort.Strings(channelNames)
+		for _, channelName := range channelNames {
+			cn := channelName
+			result = append(result, ExpoBranchMapping{BranchName: branch, BranchId: branch, ChannelName: &cn})
 		}
-	}
-	if branchID == "" {
-		return nil, nil
-	}
-
-	var branchName string
-	for _, branch := range resp.Data.App.ById.UpdateBranches {
-		if branch.ID == branchID {
-			branchName = branch.Name
-			break
-		}
-	}
-	if branchName == "" {
-		return nil, nil
-	}
-
-	result := &ExpoChannelMapping{
-		Id:         resp.Data.App.ById.UpdateChannelByName.ID,
-		BranchName: branchName,
-	}
-	if cacheValue, err := json.Marshal(result); err == nil {
-		ttl := 60
-		_ = cache.Set(cacheKey, string(cacheValue), &ttl)
 	}
 	return result, nil
 }
 
-func FetchExpoBranchesMapping(app *config.AppConfig) ([]ExpoBranchMapping, error) {
-	query := `
-		query FetchAppChannel($appId: String!) {
-			app {
-				byId(appId: $appId) {
-					id
-					updateBranches(offset: 0, limit: 10000) {
-						id
-						name
-					}
-					updateChannels(offset: 0, limit: 10000) {
-						id
-						name
-						branchMapping
-					}
-				}
-			}
-		}
-	`
-
-	appId, expoToken := resolveAppConfig(app)
-	variables := map[string]interface{}{"appId": appId}
-
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "FetchExpoBranches"
-	}
-
-	var resp struct {
-		Data struct {
-			App struct {
-				ById struct {
-					UpdateBranches []struct {
-						ID   string `json:"id"`
-						Name string `json:"name"`
-					} `json:"updateBranches"`
-					UpdateChannels []struct {
-						ID            string `json:"id"`
-						Name          string `json:"name"`
-						BranchMapping string `json:"branchMapping"`
-					} `json:"updateChannels"`
-				} `json:"byId"`
-			} `json:"app"`
-		} `json:"data"`
-	}
-
-	ctx := context.Background()
-	if err := makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{
-		Token: &expoToken,
-	}, &resp, headers); err != nil {
-		return nil, err
-	}
-
-	branchIDToChannels := make(map[string][]string)
-	for _, channel := range resp.Data.App.ById.UpdateChannels {
-		var mapping BranchMapping
-		if err := json.Unmarshal([]byte(channel.BranchMapping), &mapping); err != nil {
-			return nil, err
-		}
-
-		for _, m := range mapping.Data {
-			var logic string
-			if json.Unmarshal(m.BranchMappingLogic, &logic) == nil && logic == "true" {
-				branchIDToChannels[m.BranchId] = append(branchIDToChannels[m.BranchId], channel.Name)
-			}
-		}
-	}
-
-	var branchMappings []ExpoBranchMapping
-	for _, branch := range resp.Data.App.ById.UpdateBranches {
-		channelNames, found := branchIDToChannels[branch.ID]
-		if !found || len(channelNames) == 0 {
-			branchMappings = append(branchMappings, ExpoBranchMapping{
-				BranchName:  branch.Name,
-				BranchId:    branch.ID,
-				ChannelName: nil,
-			})
-			continue
-		}
-
-		for _, channelName := range channelNames {
-			cn := channelName
-			branchMappings = append(branchMappings, ExpoBranchMapping{
-				BranchName:  branch.Name,
-				BranchId:    branch.ID,
-				ChannelName: &cn,
-			})
-		}
-	}
-
-	return branchMappings, nil
+// CreateBranch is a no-op: there is no external registry to sync.
+func CreateBranch(appId, branch string) error {
+	return nil
 }
 
-func CreateBranch(app *config.AppConfig, branch string) error {
-	query := `
-		mutation CreateUpdateBranchForAppMutation($appId: ID!, $name: String!) {
-		  updateBranch {
-			createUpdateBranchForApp(appId: $appId, name: $name) {
-			  id
-			}
-		  }
-		}
-	`
-	appId, token := resolveAppConfig(app)
-	variables := map[string]interface{}{
-		"appId": appId,
-		"name":  branch,
-	}
-	headers := map[string]string{}
-	if config.IsTestMode() {
-		headers["operationName"] = "CreateBranch"
-	}
-	ctx := context.Background()
-	resp := struct{}{}
-	return makeGraphQLRequest(ctx, query, variables, types.ExpoAuth{
-		Token: &token,
-	}, &resp, headers)
-}
-
-type ExpoApp struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
+// UpdateChannelBranchMapping rejects dashboard edits: the mapping is part of
+// EXPO_APPS_JSON, so changing it is a config change + redeploy, not an API
+// call. Returning an error surfaces a clear 500 in the dashboard instead of
+// silently dropping the edit.
+func UpdateChannelBranchMapping(appId, channelName, branchId string) error {
+	return errors.New("channel mapping is managed via EXPO_APPS_JSON (channels map); update the config and redeploy")
 }

@@ -6,6 +6,7 @@ import {
   RequestedPlatform,
   getExpoConfigUpdateUrl,
   getPrivateExpoConfigAsync,
+  requireExpoAppId,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
@@ -31,24 +32,30 @@ export default class Publish extends Command {
       description: 'Name of the branch to point to',
       required: true,
     }),
+    nonInteractive: Flags.boolean({
+      description: 'Run command in non-interactive mode',
+      default: false,
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
     branch: string;
+    nonInteractive: boolean;
   } {
     return {
       platform: flags.platform,
       branch: flags.branch,
+      nonInteractive: flags.nonInteractive,
     };
   }
   public async run(): Promise<void> {
     const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    if (!credentials.token) {
+      Log.error('No credentials found. Set the OTA_PUBLISH_TOKEN environment variable.');
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
-    const { platform, branch } = this.sanitizeFlags(flags);
+    const { platform, branch, nonInteractive } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
       process.exit(1);
@@ -62,14 +69,16 @@ export default class Publish extends Command {
       Log.error('Expo is not installed in this project. Please install Expo first.');
       process.exit(1);
     }
-    const confirmed = await confirmAsync({
-      message: `Are you sure you want to publish a rollback to the branch ${branch} ?`,
-      name: 'export',
-      type: 'confirm',
-    });
-    if (!confirmed) {
-      Log.error('Operation cancelled');
-      process.exit(1);
+    if (!nonInteractive) {
+      const confirmed = await confirmAsync({
+        message: `Are you sure you want to publish a rollback to the branch ${branch} ?`,
+        name: 'export',
+        type: 'confirm',
+      });
+      if (!confirmed) {
+        Log.error('Operation cancelled');
+        process.exit(1);
+      }
     }
 
     const privateConfig = await getPrivateExpoConfigAsync(projectDir, {
@@ -88,11 +97,11 @@ export default class Publish extends Command {
       );
       process.exit(1);
     }
+    const appId = requireExpoAppId(privateConfig);
     let baseUrl: string;
     try {
       const parsedUrl = new URL(updateUrl);
-      const pathname = parsedUrl.pathname.replace(/\/manifest\/?$/, '').replace(/\/+$/, '');
-      baseUrl = parsedUrl.origin + pathname;
+      baseUrl = parsedUrl.origin;
     } catch (e) {
       Log.error('Invalid URL', e);
       process.exit(1);
@@ -142,7 +151,7 @@ export default class Publish extends Command {
     const erroredPlatforms: { platform: string; reason: string }[] = [];
     await Promise.all(
       runtimeVersions.map(async ({ runtimeVersion, platform }) => {
-        const rollbackUrl = new URL(`${baseUrl}/rollback/${branch}`);
+        const rollbackUrl = new URL(`${baseUrl}/${appId}/rollback/${branch}`);
         rollbackUrl.searchParams.set('commitHash', commitHash ?? '');
         rollbackUrl.searchParams.set('platform', platform);
         rollbackUrl.searchParams.set('runtimeVersion', runtimeVersion ?? '');

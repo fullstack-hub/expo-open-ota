@@ -7,6 +7,15 @@ sidebar_position: 1
 The **Expo Open OTA** server requires several environment variables to be set in order to function correctly. These variables are used to configure the server, interact with the Expo API, and manage the server's behavior.
 You can set these variables in a `.env` file for local development or in your deployment environment.
 
+:::info Single-app or Multi-app?
+**One server can host one or many Expo projects.** The rest of this page reflects that:
+
+- **Single-app** — flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). Unchanged from v1.
+- **Multi-app** — a single `EXPO_APPS_JSON` env var describing every app.
+
+When both are set, `EXPO_APPS_JSON` wins. See the [Expo Apps Configuration](#-expo-apps-configuration) section below and the [app configuration guide](/docs/getting-started/prerequisites#app-configuration).
+:::
+
 ## Supported Environment Variables
 
 
@@ -20,55 +29,76 @@ You can set these variables in a `.env` file for local development or in your de
 | --- | --- | --- | --- | --- |
 | `JWT_SECRET` | ✅ | JWT secret used to sign some endpoints | `Random string` | [Ref](/docs/getting-started/prerequisites#jwt-secret) |
 
-### 📱 **Expo Configuration**
-| Name | Required | Description | Example | Reference |
-| --- | --- | --- | --- | --- |
-| `EXPO_APP_ID` | ✅ | The ID of the Expo project | `Random string` | [Ref](/docs/getting-started/prerequisites#how-to-get-your-project-id) |
-| `EXPO_ACCESS_TOKEN` | ✅ | Expo access token | `Random string` | [Ref](/docs/getting-started/prerequisites#how-to-get-your-expo-token) |
+### 📱 **Expo Apps Configuration**
+
+The server supports one or many Expo apps on the same deployment. Choose the
+path that matches how many apps you host — both use the exact same runtime.
+
+**Path A — single app (keeps v1 env var names unchanged)** — set:
+
+| Name | Required | Description | Example |
+| --- | --- | --- | --- |
+| `EXPO_APP_ID` | ✅ | The Expo project id (EAS projectId) that clients send as the `expo-app-id` header | `a45ed151-0387-4419-a97c-d008d8f214c7` |
+| `EXPO_ACCESS_TOKEN` | ❌ (ignored) | Legacy api.expo.dev credential — no longer read by this build; safe to delete | `expo_xxx` |
+| `PUBLISH_TOKENS` | ✅ | Comma-separated accepted publish tokens (opaque, compared verbatim) — see [Self-hosted auth](/docs/advanced/self-hosted-auth) | `f3a9c1...` |
+| `KEYS_STORAGE_TYPE` | ❌ (defaults to `local`) | `local`, `aws-secrets-manager`, or `environment` | `local` |
+| `PUBLIC_LOCAL_EXPO_KEY_PATH` | ✅ if `KEYS_STORAGE_TYPE=local` | Path to the Expo public key (PEM) | `/keys/public.pem` |
+| `PRIVATE_LOCAL_EXPO_KEY_PATH` | ✅ if `KEYS_STORAGE_TYPE=local` | Path to the Expo private key (PEM) | `/keys/private.pem` |
+| `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID` | ✅ if `KEYS_STORAGE_TYPE=aws-secrets-manager` | AWS Secrets Manager secret ID (public key) | `/eoota/public` |
+| `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID` | ✅ if `KEYS_STORAGE_TYPE=aws-secrets-manager` | AWS Secrets Manager secret ID (private key) | `/eoota/private` |
+| `PUBLIC_EXPO_KEY_B64` | ✅ if `KEYS_STORAGE_TYPE=environment` | Base64-encoded Expo public key (PEM) | `LS0tLS1CRUdJTi...` |
+| `PRIVATE_EXPO_KEY_B64` | ✅ if `KEYS_STORAGE_TYPE=environment` | Base64-encoded Expo private key (PEM) | `LS0tLS1CRUdJTi...` |
+
+**Path B — multi-app** — set a single JSON env var that describes every app:
+
+| Name | Required | Description | Example |
+| --- | --- | --- | --- |
+| `EXPO_APPS_JSON` | ✅ for 2+ apps | JSON array of app configs; each entry needs `publishTokens`, may set a `channels` map, and only needs `keys` when OTA code signing is enabled | `[{"id":"...","publishTokens":["..."],"channels":{"production":"production"}}]` |
+
+`EXPO_APPS_JSON` always wins when set. If it is not set, the flat env vars
+above are used to build a single-app config. If neither path is configured
+the server fails to start with a clear boot error.
+
+:::caution v2 is a breaking upgrade
+The **env var names are identical to v1** on the single-app path, but the
+server still requires **client-side changes** (every app must now send an
+`expo-app-id` header — see the [Migration guide](/docs/advanced/migration-v1-to-v2))
+**and** the underlying bucket layout changed from `{prefix}/{branch}/…` to
+`{prefix}/{appId}/{branch}/…`. Existing v1 bucket data is not read by a v2
+server without a one-time data re-path. The Migration guide has the
+procedure.
+:::
 
 ### ⚡ **Cache Configuration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
-| `CACHE_MODE` | ✅ | `local` or `redis` | `local` | [Ref](/docs/server-configuration/cache) |
+| `CACHE_MODE` | ✅ | `local`, `redis`, or `redis-sentinel` | `local` | [Ref](/docs/server-configuration/cache) |
 | `REDIS_HOST` | ✅ if CACHE_MODE = `redis` | Redis host | `127.0.0.1` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_PORT` | ✅ if CACHE_MODE = `redis` | Redis port | `6379` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_PASSWORD` | ✅ if CACHE_MODE = `redis` | Redis password | `password` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_USE_TLS`     | ❌ | Enable TLS/SSL connection             | `true`          | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_USERNAME`    | ❌ | Redis username for ACL authentication | `myuser`        | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_CA_CERT_B64` | ❌ | Base64-encoded CA certificate for TLS | `Base64 string` | [Ref](/docs/server-configuration/cache?cache=redis) |
+| `REDIS_SENTINEL_ADDRS` | ✅ if CACHE_MODE = `redis-sentinel` | Comma-separated list of Sentinel addresses | `sentinel-0:26379,sentinel-1:26379,sentinel-2:26379` | [Ref](/docs/server-configuration/cache?cache=redis-sentinel) |
+| `REDIS_SENTINEL_MASTER_NAME` | ❌ | Sentinel master name (defaults to `mymaster`) | `mymaster` | [Ref](/docs/server-configuration/cache?cache=redis-sentinel) |
 
 ### 📦 **Storage Configuration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
 | `STORAGE_MODE` | ✅ | `local`, `s3` or `gcs` | `local` | [Ref](/docs/server-configuration/storage) |
 | `S3_BUCKET_NAME` | ✅ if STORAGE_MODE = `s3` | S3 bucket name | `my-bucket` | [Ref](/docs/server-configuration/storage?storage=s3) |
-| `S3_KEY_PREFIX` | ❌ | Key prefix for namespacing inside a shared bucket (multi-app) | `myapp/` | [Ref](/docs/server-configuration/storage?storage=s3) |
+| `BUCKET_KEY_PREFIX` | ❌ | Key prefix for namespacing inside a shared bucket (multi-app). Works for `s3`, `gcs` and `local` storage modes. | `myapp/` | [Ref](/docs/server-configuration/storage) |
+| `S3_KEY_PREFIX` | ❌ | **Deprecated** — use `BUCKET_KEY_PREFIX`. Kept for backward compatibility. | `myapp/` | [Ref](/docs/server-configuration/storage) |
 | `GCS_BUCKET_NAME` | ✅ if STORAGE_MODE = `gcs` | GCS bucket name | `my-bucket` | [Ref](/docs/server-configuration/storage?storage=gcs) |
 | `GOOGLE_APPLICATION_CREDENTIALS_B64` | ✅ if STORAGE_MODE = `gcs` (for signed URLs) | Base64-encoded service account JSON | `Base64 string` | [Ref](/docs/server-configuration/storage?storage=gcs) |
 | `LOCAL_BUCKET_BASE_PATH` | ✅ if STORAGE_MODE = `local` | Path to store assets | `/path/to/assets` | [Ref](/docs/server-configuration/storage?storage=local) |
 
-### 🔐 **Key store Configuration**
-| Name | Required | Description | Example | Reference |
-| --- | --- | --- | --- | --- |
-| `KEYS_STORAGE_TYPE` | ✅ | `environment`, `aws-secrets-manager`, or `local` | `environment` | [Ref](/docs/server-configuration/key-store) |
+### 🔐 **Expo Signing Keys**
 
-#### **AWS Secrets Manager Key Store**
-| Name | Required | Description | Example | Reference |
-| --- | --- | --- | --- | --- |
-| `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID` | ✅ if KEYS_STORAGE_TYPE = `aws-secrets-manager` | Expo public key secret name in AWS | `my-expo-public-key` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
-| `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID` | ✅ if KEYS_STORAGE_TYPE = `aws-secrets-manager` | Expo private key secret name in AWS | `my-expo-private-key` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
-
-#### **Environment-Based Key Store**
-| Name | Required | Description | Example | Reference |
-| --- | --- | --- | --- | --- |
-| `PUBLIC_EXPO_KEY_B64` | ✅ if KEYS_STORAGE_TYPE = `environment` | Base64-encoded Expo public key | `Base64 string` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
-| `PRIVATE_EXPO_KEY_B64` | ✅ if KEYS_STORAGE_TYPE = `environment` | Base64-encoded Expo private key | `Base64 string` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
-
-#### **Local Key Store**
-| Name | Required | Description | Example | Reference |
-| --- | --- | --- | --- | --- |
-| `PRIVATE_LOCAL_EXPO_KEY_PATH` | ✅ if KEYS_STORAGE_TYPE = `local` | Path to the Expo private key | `/path/to/private-key.pem` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
-| `PUBLIC_LOCAL_EXPO_KEY_PATH` | ✅ if KEYS_STORAGE_TYPE = `local` | Path to the Expo public key | `/path/to/public-key.pem` | [Ref](/docs/server-configuration/key-store#expo-signing-certificate) |
+Since v2, Expo signing keys are part of each app's `keys` block in
+`EXPO_APPS_JSON` (or the per-app flat env vars on the single-app path —
+see above). CloudFront keys stay global and are configured via env vars
+below.
 
 ### ☁️ **AWS & CloudFront Configuration**
 | Name | Required | Description | Example | Reference |
@@ -97,3 +127,8 @@ You can set these variables in a `.env` file for local development or in your de
 | --- | --- | --- | --- | --- |
 | `USE_DASHBOARD` | ❌ | Enable the dashboard | `true` | [Ref](/docs/dashboard) |
 | `ADMIN_PASSWORD` | ✅ if USE_DASHBOARD is set | Admin password | `Random string` | [Ref](/docs/dashboard) |
+
+#### **Migration**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `SKIP_V1_TO_V2_BUCKET_MIGRATION` | ❌ | Set to `true` to opt out of the automatic one-shot bucket re-path that moves v1 data under `{appId}/` on first v2 boot. Useful when you want to re-path the data manually. Only meaningful on the single-app flat-env path. | `true` | [Ref](/docs/advanced/migration-v1-to-v2) |

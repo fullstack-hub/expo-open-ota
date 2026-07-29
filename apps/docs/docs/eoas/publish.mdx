@@ -17,12 +17,13 @@ To publish an update, run the following command in your Expo project:
 npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>] [--message <message>]
 ```
 
-This command will retrieve the expo credentials from your .expo/state.json file or an EXPO_TOKEN in your runtime environment to authenticate
-the request to the Expo API.
+This command authenticates against your server with the publish token in the
+`OTA_PUBLISH_TOKEN` environment variable (see
+[Self-hosted auth](/docs/advanced/self-hosted-auth) for issuing one).
 
 :::warning
  🚨EOAS publish will create a new build of your app. Do not forget to pass the necessary environment variables to the runtime environment.
- Example: `EXPO_TOKEN=your_token RELEASE_CHANNEL=staging npx eoas publish --branch <branch-name>`.
+ Example: `OTA_PUBLISH_TOKEN=your_token RELEASE_CHANNEL=staging npx eoas publish --branch <branch-name>`.
  Or with dotenv: `dotenv -e .env.local -- npx eoas publish --branch <branch-name>`.
 :::
 
@@ -69,5 +70,5 @@ EOAS_PACKAGE_RUNNER=bunx eoas publish --branch production
 ## CI/CD
 
 You can automate the process of publishing updates by integrating the `npx eoas publish --nonInteractive` command in your CI/CD pipeline.
-However, you need to make sure that the EXPO_TOKEN is set up in your CI/CD environment.
+However, you need to make sure that the OTA_PUBLISH_TOKEN secret is set up in your CI/CD environment.
 (Do not forget the `--nonInteractive` flag to avoid interactive prompts)

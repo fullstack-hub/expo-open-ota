@@ -1,0 +1,13 @@
+{{- if and .Values.configMapData .Values.configMaps.environment }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.configMaps.environment }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "expo-open-ota.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.configMapData }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

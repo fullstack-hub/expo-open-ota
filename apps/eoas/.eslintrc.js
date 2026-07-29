@@ -37,7 +37,7 @@ module.exports = {
     {
       files: ['*.ts', '*.d.ts'],
       parserOptions: {
-        project: './tsconfig.json',
+        project: './tsconfig.eslint.json',
       },
       rules: {
         '@typescript-eslint/explicit-function-return-type': [
@@ -67,6 +67,14 @@ module.exports = {
         '@typescript-eslint/prefer-string-starts-ends-with': 'warn',
         '@typescript-eslint/prefer-ts-expect-error': 'warn',
         '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
+      },
+    },
+    {
+      // node:test 의 describe/it 는 Promise 를 반환하지만 최상위에서 await 하지
+      // 않는 게 정상적인 사용 패턴이라, 테스트 파일에서는 floating-promises 를 끈다.
+      files: ['test/**/*.ts'],
+      rules: {
+        '@typescript-eslint/no-floating-promises': 'off',
       },
     },
   ],

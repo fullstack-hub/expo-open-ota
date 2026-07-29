@@ -7,6 +7,7 @@
 *.test
 .idea/
 keys/
+.env.*
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
@@ -52,3 +53,5 @@ coverage.html
 *~
 updates/**/*
 test/keys/**/*
+
+docs/superpowers/*

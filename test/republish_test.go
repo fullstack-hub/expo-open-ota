@@ -26,7 +26,7 @@ func createRepublishRequest(branch, runtimeVersion, headerKey, headerValue, plat
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set(headerKey, headerValue)
 	return w, mux.NewRouter(), nil, r
 }
@@ -34,11 +34,10 @@ func createRepublishRequest(branch, runtimeVersion, headerKey, headerValue, plat
 func TestToRepublishRollbackWithBadBearer(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func copyDir(src string, dst string) error {
@@ -83,7 +82,6 @@ func copyDir(src string, dst string) error {
 func TestGoodRepublish(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -114,7 +112,7 @@ func TestGoodRepublish(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -122,7 +120,7 @@ func TestGoodRepublish(t *testing.T) {
 	updateType := update.GetUpdateType(*lastUpdate)
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -147,7 +145,6 @@ func TestGoodRepublish(t *testing.T) {
 func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -178,7 +175,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -186,7 +183,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	updateType := update.GetUpdateType(*lastUpdate)
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -211,7 +208,6 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 func TestRepublishOnBadPlatform(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -233,7 +229,6 @@ func TestRepublishOnBadPlatform(t *testing.T) {
 func TestRepublishInvalidUpdate(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -246,8 +241,8 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	// rm the file projectDir/updates/DO_NOT_USE/branch-2/1/1737455526/.check
-	err = os.Remove(filepath.Join(dst, "branch-2", "1", "1737455526", ".check"))
+	// rm the file projectDir/updates/DO_NOT_USE/test-app-id/branch-2/1/1737455526/.check
+	err = os.Remove(filepath.Join(dst, "test-app-id", "branch-2", "1", "1737455526", ".check"))
 	if err != nil {
 		panic(err)
 	}
@@ -260,7 +255,6 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 func TestRepublishWithBadUpdate(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -282,7 +276,6 @@ func TestRepublishWithBadUpdate(t *testing.T) {
 func TestToRepublishARollback(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)

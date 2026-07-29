@@ -43,7 +43,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	authService := auth.NewAuth()
 	authResponse, err := authService.RefreshToken(refreshToken)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 

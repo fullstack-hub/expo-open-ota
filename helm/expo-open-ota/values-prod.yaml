@@ -1,0 +1,13 @@
+replicaCount: 2
+
+image:
+  env: main
+
+configMapData:
+  BASE_URL: "https://ota.juvis.co.kr"
+  # S3_BUCKET_NAME 은 values.yaml 의 configMapData 에서 주입됨 (기존 운영 그대로)
+  BUCKET_KEY_PREFIX: ""                      # 기존 운영과 동일 (값 변경 금지 — .migrationhistory 마이그레이션 사고 방지). 이름만 S3_KEY_PREFIX 에서 변경(동일 값이라 데이터 위치 불변)
+  CACHE_KEY_PREFIX: "prod:juvis:ota:cache"
+  EXPO_APP_ID: ""
+
+env: []

@@ -1,0 +1,13 @@
+replicaCount: 2
+
+image:
+  env: staging
+
+configMapData:
+  BASE_URL: "https://ota.juvisstg.co.kr"   # TODO: staging OTA 도메인 확인
+  # S3_BUCKET_NAME 은 values.yaml 의 configMapData 에서 주입됨 (단일 버킷, 모든 환경 공유)
+  BUCKET_KEY_PREFIX: "_staging/"            # 운영 데이터(empty prefix)와 충돌 없게 underscore + 트레일링 슬래시
+  CACHE_KEY_PREFIX: "stg:juvis:ota:cache"
+  EXPO_APP_ID: ""
+
+env: []

@@ -43,7 +43,9 @@ export function resolvePackageRunner(explicit?: string, projectDir?: string): st
 
   if (projectDir) {
     const detected = detectRunnerFromPackageJson(projectDir);
-    if (detected) return detected;
+    if (detected) {
+      return detected;
+    }
   }
 
   return DEFAULT_PACKAGE_RUNNER;
@@ -60,7 +62,11 @@ function detectRunnerFromPackageJson(startDir: string): string | undefined {
   while (dir !== root) {
     const pkgPath = path.join(dir, 'package.json');
     try {
+      // 패키지 러너 해석은 spawn 직전 동기 경로에서 호출되므로 동기 fs 가
+      // 의도적이다. 상위 디렉터리를 한 번 훑는 가벼운 작업이라 블로킹도 무시 가능.
+      // eslint-disable-next-line node/no-sync
       if (fs.existsSync(pkgPath)) {
+        // eslint-disable-next-line node/no-sync
         const pkg = fs.readJsonSync(pkgPath);
         if (pkg.packageManager) {
           const name = pkg.packageManager.split('@')[0];

@@ -71,9 +71,6 @@ func LoadConfig() {
 	if err != nil {
 		log.Printf("No .env file found, continuing with runtime environment variables.")
 	}
-
-	LoadAppsConfig()
-
 	storageMode := GetEnv("STORAGE_MODE")
 	if !validateStorageMode(storageMode) {
 		log.Fatalf("Invalid STORAGE_MODE: %s", storageMode)
@@ -86,20 +83,13 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-
-	if IsMultiAppMode() {
-		log.Printf("Multi-app mode enabled with %d apps", len(GetAllApps()))
-	} else {
-		expoToken := GetEnv("EXPO_ACCESS_TOKEN")
-		if expoToken == "" {
-			log.Fatalf("EXPO_ACCESS_TOKEN not set")
-		}
-		expoAppId := GetEnv("EXPO_APP_ID")
-		if expoAppId == "" {
-			log.Fatalf("EXPO_APP_ID not set")
-		}
+	// v2: per-app identity + keys live in the apps config (EXPO_APPS_JSON
+	// for multi-app, or the legacy EXPO_APP_ID / EXPO_ACCESS_TOKEN /
+	// PUBLIC_LOCAL_EXPO_KEY_PATH etc. flat env vars for the single-app
+	// upgrade-in-place path).
+	if err := LoadApps(); err != nil {
+		log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v2 multi-app config format.", err)
 	}
-
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatalf("JWT_SECRET not set")
@@ -107,15 +97,12 @@ func LoadConfig() {
 }
 
 var DefaultEnvValues = map[string]string{
-	"LOCAL_BUCKET_BASE_PATH":      "./updates",
-	"STORAGE_MODE":                "local",
-	"BASE_URL":                    resolveDefaultBaseUrl(),
-	"PUBLIC_LOCAL_EXPO_KEY_PATH":  "./keyStore/public-key.pem",
-	"PRIVATE_LOCAL_EXPO_KEY_PATH": "./keyStore/private-key.pem",
-	"KEYS_STORAGE_TYPE":           "local",
-	"JWT_SECRET":                  "",
-	"AWS_REGION":                  "eu-west-3",
-	"AWS_BASE_ENDPOINT":           "",
+	"LOCAL_BUCKET_BASE_PATH": "./updates",
+	"STORAGE_MODE":           "local",
+	"BASE_URL":               resolveDefaultBaseUrl(),
+	"JWT_SECRET":             "",
+	"AWS_REGION":             "eu-west-3",
+	"AWS_BASE_ENDPOINT":      "",
 }
 
 

@@ -149,6 +149,54 @@ export function getExpoConfigUpdateUrl(config: ExpoConfig): string | undefined {
   return config.updates?.url;
 }
 
+// getAppIdFromUpdateUrl 는 updates.url 의 경로에서 app id 를 추출한다. 자체
+// 호스팅 서버는 경로 기반 manifest 를 `{base}/{appId}/manifest` 로 라우팅하므로,
+// URL 의 마지막 `manifest` 앞에 세그먼트가 있으면 그 세그먼트가 곧 app id 다.
+// 이는 빌드된 앱이 실제로 폴링하는 값이자 서버가 라우팅하는 값과 일치한다.
+// `{base}/manifest` 처럼 경로에 app id 가 없으면 undefined 를 반환해, 호출 측이
+// expo-app-id 헤더로 fallback 하도록 한다.
+export function getAppIdFromUpdateUrl(updateUrl: string | undefined): string | undefined {
+  if (!updateUrl) {
+    return undefined;
+  }
+  try {
+    const { pathname } = new URL(updateUrl);
+    const segments = pathname.split('/').filter(segment => segment.length > 0);
+    // 다른 경로 형태를 app id 로 오인하지 않도록, URL 이 `/manifest` 로 끝나고 그
+    // 앞에 세그먼트가 있을 때만 추출한다.
+    if (segments.length < 2 || segments[segments.length - 1] !== 'manifest') {
+      return undefined;
+    }
+    return segments[segments.length - 2];
+  } catch {
+    return undefined;
+  }
+}
+
+export function requireExpoAppId(config: ExpoConfig): string {
+  // updates.url 경로(`{base}/{appId}/manifest`)에 박힌 app id 를 우선한다. 이는
+  // 빌드된 앱이 폴링하는 값이자 서버가 라우팅하는 값이라, 레거시 expo-app-id
+  // 헤더에 낡은 값(예: `eoas init` 이 기본으로 넣는 Expo projectId UUID)이 남아
+  // 있어도 항상 올바르게 동작한다.
+  const appIdFromUrl = getAppIdFromUpdateUrl(getExpoConfigUpdateUrl(config));
+  if (appIdFromUrl) {
+    return appIdFromUrl;
+  }
+  const appId = (config.updates as { requestHeaders?: Record<string, string> } | undefined)
+    ?.requestHeaders?.['expo-app-id'];
+  if (!appId) {
+    Log.error("Your Expo config is missing the 'expo-app-id' entry in updates.requestHeaders.");
+    Log.error(
+      "This usually means you're running eoas v2+ against a v1-style single-app config or your config is missing the 'expo-app-id' entry."
+    );
+    Log.error(
+      "Fix: run 'npx eoas init' to migrate, or pin to the previous CLI via 'npx eoas@1 ...'."
+    );
+    process.exit(1);
+  }
+  return appId;
+}
+
 export async function createOrModifyExpoConfigAsync(
   projectDir: string,
   exp: Partial<ExpoConfig>
@@ -275,10 +323,8 @@ export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
   let baseUrl: string;
   try {
     const parsedUrl = new URL(updateUrl);
-    // Preserve pathname (excluding trailing /manifest) to support multi-app URL prefixes
-    let pathname = parsedUrl.pathname.replace(/\/manifest\/?$/, '').replace(/\/+$/, '');
-    baseUrl = parsedUrl.origin + pathname;
-  } catch (e) {
+    baseUrl = parsedUrl.origin;
+  } catch {
     throw new Error('Invalid update URL.');
   }
   return baseUrl;

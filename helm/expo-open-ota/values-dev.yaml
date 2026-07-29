@@ -1,0 +1,16 @@
+replicaCount: 1
+
+image:
+  env: develop
+
+# values.yaml 의 configMapData 와 머지됨 — dev 전용 키만 적기
+configMapData:
+  BASE_URL: "https://ota.juvisdev.co.kr"   # TODO: dev OTA 도메인 확인
+  # S3_BUCKET_NAME 은 values.yaml 의 configMapData 에서 주입됨 (단일 버킷, 모든 환경 공유)
+  BUCKET_KEY_PREFIX: "_development/"        # 운영 데이터(empty prefix)와 충돌 없게 underscore + 트레일링 슬래시
+  CACHE_KEY_PREFIX: "dev:juvis:ota:cache"
+  EXPO_APP_ID: ""                           # TODO: 필요 시 Expo App ID
+
+env: []
+
+# resources 는 values.yaml 의 기본값을 그대로 사용 (100m/500m, 128Mi/256Mi)

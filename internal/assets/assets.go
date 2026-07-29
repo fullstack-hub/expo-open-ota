@@ -1,7 +1,6 @@
 package assets
 
 import (
-	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/types"
@@ -12,6 +11,7 @@ import (
 )
 
 type AssetsRequest struct {
+	AppId           string
 	Branch         string
 	AssetName      string
 	RuntimeVersion string
@@ -27,7 +27,7 @@ type AssetsResponse struct {
 	URL         string
 }
 
-func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool) (AssetsResponse, *types.BucketFile, string, error) {
+func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *types.BucketFile, string, error) {
 	requestID := req.RequestID
 
 	if req.AssetName == "" {
@@ -45,7 +45,7 @@ func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool
 		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
 	}
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(app, req.Branch, req.RuntimeVersion, req.Platform)
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.AppId,req.Branch, req.RuntimeVersion, req.Platform)
 	if err != nil || lastUpdate == nil {
 		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s", requestID, req.RuntimeVersion)
 		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
@@ -63,7 +63,7 @@ func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool
 		}, nil, lastUpdate.UpdateId, nil
 	}
 
-	metadata, err := update.GetMetadata(app, *lastUpdate)
+	metadata, err := update.GetMetadata(*lastUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
 		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting metadata")}, nil, "", nil
@@ -89,7 +89,7 @@ func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool
 		}
 	}
 
-	resolvedBucket := bucket.GetBucketForApp(app)
+	resolvedBucket := bucket.GetBucket()
 	asset, err := resolvedBucket.GetFile(*lastUpdate, req.AssetName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting asset: %v", requestID, err)
@@ -117,8 +117,8 @@ func getAssetMetadata(app *config.AppConfig, req AssetsRequest, returnAsset bool
 	}, asset, lastUpdate.UpdateId, nil
 }
 
-func HandleAssetsWithFile(app *config.AppConfig, req AssetsRequest) (AssetsResponse, error) {
-	resp, asset, _, err := getAssetMetadata(app, req, true)
+func HandleAssetsWithFile(req AssetsRequest) (AssetsResponse, error) {
+	resp, asset, _, err := getAssetMetadata(req, true)
 	if err != nil {
 		return resp, err
 	}
@@ -151,8 +151,8 @@ func HandleAssetsWithFile(app *config.AppConfig, req AssetsRequest) (AssetsRespo
 	return resp, nil
 }
 
-func HandleAssetsWithURL(app *config.AppConfig, req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse, error) {
-	resp, _, updateId, err := getAssetMetadata(app, req, false)
+func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse, error) {
+	resp, _, updateId, err := getAssetMetadata(req, false)
 	if err != nil {
 		return resp, err
 	}
@@ -162,7 +162,7 @@ func HandleAssetsWithURL(app *config.AppConfig, req AssetsRequest, resolvedCDN c
 			Body:       resp.Body,
 		}, nil
 	}
-	resp.URL, err = resolvedCDN.ComputeRedirectionURLForAsset(req.Branch, req.RuntimeVersion, updateId, req.AssetName)
+	resp.URL, err = resolvedCDN.ComputeRedirectionURLForAsset(req.AppId, req.Branch, req.RuntimeVersion, updateId, req.AssetName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error computing redirection URL: %v", req.RequestID, err)
 		return AssetsResponse{

@@ -10,22 +10,24 @@ func IsDashboardEnabled() bool {
 	return config.GetEnv("USE_DASHBOARD") == "true"
 }
 
-func ComputeGetRuntimeVersionsCacheKey(slug string, branch string) string {
-	return fmt.Sprintf("dashboard:%s:%s:request:getRuntimeVersions:%s", version.Version, slug, branch)
+// Dashboard cache keys must include the appId so entries from one app aren't
+// served to another within the TTL (multi-tenant cache bleeding).
+func ComputeGetRuntimeVersionsCacheKey(appId, branch string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getRuntimeVersions:%s", version.Version, appId, branch)
 }
 
-func ComputeGetBranchesCacheKey(slug string) string {
-	return fmt.Sprintf("dashboard:%s:%s:request:getBranches", version.Version, slug)
+func ComputeGetBranchesCacheKey(appId string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getBranches", version.Version, appId)
 }
 
-func ComputeGetChannelsCacheKey(slug string) string {
-	return fmt.Sprintf("dashboard:%s:%s:request:getChannels", version.Version, slug)
+func ComputeGetChannelsCacheKey(appId string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getChannels", version.Version, appId)
 }
 
-func ComputeGetUpdatesCacheKey(slug string, branch string, runtimeVersion string) string {
-	return fmt.Sprintf("dashboard:%s:%s:request:getUpdates:%s:%s", version.Version, slug, branch, runtimeVersion)
+func ComputeGetUpdatesCacheKey(appId, branch, runtimeVersion string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdates:%s:%s", version.Version, appId, branch, runtimeVersion)
 }
 
-func ComputeGetUpdateDetailsCacheKey(slug string, branch string, runtimeVersion string, updateID string) string {
-	return fmt.Sprintf("dashboard:%s:%s:request:getUpdateDetails:%s:%s:%s", version.Version, slug, branch, runtimeVersion, updateID)
+func ComputeGetUpdateDetailsCacheKey(appId, branch, runtimeVersion, updateID string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdateDetails:%s:%s:%s", version.Version, appId, branch, runtimeVersion, updateID)
 }
