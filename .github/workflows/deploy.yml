@@ -64,6 +64,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Add Homebrew tools to PATH
+        run: |
+          for directory in /opt/homebrew/bin /usr/local/bin; do
+            [ -d "$directory" ] && echo "$directory" >> "$GITHUB_PATH"
+          done
+
       - name: Verify AWS target
         run: |
           actual_account=$(aws sts get-caller-identity --query Account --output text)
@@ -79,6 +85,8 @@ jobs:
               --username AWS --password-stdin "$ECR_REGISTRY"
 
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
 
       - name: Build and push ARM64 image
         id: image
