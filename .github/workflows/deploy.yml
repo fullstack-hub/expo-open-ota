@@ -14,15 +14,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  AWS_PROFILE: fullstackhub
-  AWS_REGION: ap-northeast-2
-  AWS_ACCOUNT_ID: "696938875922"
-  ECR_REGISTRY: 696938875922.dkr.ecr.ap-northeast-2.amazonaws.com
-  ECR_REPOSITORY: apps/expo-open-ota
-  EC2_INSTANCE_ID: i-0d128c3b83fcc558c
-  STACK_DIR: /opt/stack
-
 jobs:
   validate:
     runs-on: self-hosted
@@ -66,6 +57,14 @@ jobs:
     needs: validate
     runs-on: self-hosted
     environment: production
+    env:
+      AWS_PROFILE: fullstackhub
+      AWS_REGION: ap-northeast-2
+      AWS_ACCOUNT_ID: "696938875922"
+      ECR_REGISTRY: 696938875922.dkr.ecr.ap-northeast-2.amazonaws.com
+      ECR_REPOSITORY: apps/expo-open-ota
+      EC2_INSTANCE_ID: i-0d128c3b83fcc558c
+      STACK_DIR: /opt/stack
     steps:
       - uses: actions/checkout@v4
 
