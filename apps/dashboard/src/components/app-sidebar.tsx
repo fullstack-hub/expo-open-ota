@@ -44,34 +44,28 @@ export function AppSidebar() {
   const currentPath = location.pathname;
   const { apps, selectedAppId, setSelectedAppId, isLoading } = useSelectedApp();
 
-  // Only show the selector when there is something to choose from. Single-app
-  // deployments (the majority) get the plain navigation with no extra UI.
-  const showSelector = apps.length > 1;
-
   return (
     <Sidebar className="w-64 bg-white border-r border-gray-200">
       <SidebarHeader className="p-4 border-b">
         <h1 className="text-lg font-semibold">Expo Open OTA</h1>
       </SidebarHeader>
       <SidebarContent className="p-2">
-        {showSelector && (
-          <SidebarGroup>
-            <SidebarGroupLabel>App</SidebarGroupLabel>
-            <SidebarGroupContent className="px-2 pb-2">
-              <Combobox
-                label="Select app"
-                options={apps.map(a => ({ value: a.id, label: a.name || a.id }))}
-                value={selectedAppId ?? ''}
-                onChange={v => {
-                  // Empty string comes from Combobox's "toggle off" path —
-                  // ignore it so the user can't end up with no selection.
-                  if (v) setSelectedAppId(v);
-                }}
-                loading={isLoading}
-              />
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        <SidebarGroup>
+          <SidebarGroupLabel>App</SidebarGroupLabel>
+          <SidebarGroupContent className="px-2 pb-2">
+            <Combobox
+              label="Select app"
+              options={apps.map(a => ({ value: a.id, label: a.name || a.id }))}
+              value={selectedAppId ?? ''}
+              onChange={v => {
+                // Empty string comes from Combobox's "toggle off" path —
+                // ignore it so the user can't end up with no selection.
+                if (v) setSelectedAppId(v);
+              }}
+              loading={isLoading}
+            />
+          </SidebarGroupContent>
+        </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
