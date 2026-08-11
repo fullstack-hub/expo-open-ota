@@ -49,7 +49,8 @@ jobs:
           npm run build
 
   deploy:
-    if: github.event_name != 'pull_request'
+    # 운영 자동 배포는 deploy-fiet-eks.yml이 담당한다. EC2 배포는 롤백용 수동 실행만 허용한다.
+    if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: self-hosted
     environment: production
