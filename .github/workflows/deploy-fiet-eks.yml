@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
+      - name: 러너 도구 PATH 보강
+        run: |
+          for directory in /opt/homebrew/bin /usr/local/bin; do
+            [ -d "$directory" ] && echo "$directory" >> "$GITHUB_PATH"
+          done
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::522816884990:role/fullstackhub-prod-github-actions-ecr
