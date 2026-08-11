@@ -17,7 +17,7 @@ configMapData:
   PORT: "4000"
   BASE_URL: "https://ota.fullstackhub.net"
   STORAGE_MODE: s3
-  S3_BUCKET_NAME: fullstackhub-ota-522816884990
+  S3_BUCKET_NAME: fullstackhub-ota-updates-522816884990
   AWS_REGION: ap-northeast-2
   CACHE_MODE: redis-sentinel
   REDIS_SENTINEL_ADDRS: redis-sentinel.redis.svc.cluster.local:26379
@@ -27,7 +27,8 @@ configMapData:
 service:
   port: 4000
   targetPort: 4000
-nodeSelector:
-  kubernetes.io/arch: arm64
+# 기존 chart 기본값의 Karpenter 전용 selector를 전체 제거한다.
+# FIET 관리형 노드 그룹은 모두 ARM64이므로 별도 selector가 필요 없다.
+nodeSelector: null
 tolerations: []
 dnsConfig: {}
