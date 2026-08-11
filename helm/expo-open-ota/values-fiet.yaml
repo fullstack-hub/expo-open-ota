@@ -1,0 +1,33 @@
+replicaCount: 1
+image:
+  repository: 522816884990.dkr.ecr.ap-northeast-2.amazonaws.com/apps/expo-open-ota
+  env: main
+  tag: bootstrap
+serviceAccount:
+  name: expo-open-ota
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::522816884990:role/fullstackhub-prod-ota-s3
+configMaps:
+  common: ""
+  environment: expo-open-ota-config
+secrets:
+  environment: expo-open-ota-env
+  common: ""
+configMapData:
+  PORT: "4000"
+  BASE_URL: "https://ota.fullstackhub.net"
+  STORAGE_MODE: s3
+  S3_BUCKET_NAME: fullstackhub-ota-522816884990
+  AWS_REGION: ap-northeast-2
+  CACHE_MODE: redis-sentinel
+  REDIS_SENTINEL_ADDRS: redis-sentinel.redis.svc.cluster.local:26379
+  REDIS_SENTINEL_MASTER_NAME: mymaster
+  REDIS_USE_TLS: "false"
+  SKIP_V1_TO_V2_BUCKET_MIGRATION: "true"
+service:
+  port: 4000
+  targetPort: 4000
+nodeSelector:
+  kubernetes.io/arch: arm64
+tolerations: []
+dnsConfig: {}

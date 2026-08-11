@@ -40,6 +40,7 @@ configMaps:
 
 secrets:
   environment: "expo-open-ota-secrets"      # 운영자가 관리하는 EKS Secret 이름 (복수, 's' 있음)
+  common: "juvis-secret"                    # 조직 공통 Secret. FIET에서는 빈 값으로 덮어씀
 
 # ConfigMap data — 환경 공통값. 환경별 values 의 configMapData 가 머지/오버라이드함.
 configMapData:

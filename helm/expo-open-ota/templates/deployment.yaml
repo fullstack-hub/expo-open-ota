@@ -68,7 +68,7 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
-          {{- if or .Values.configMaps.common (and .Values.configMaps.environment .Values.configMapData) .Values.secrets.environment (ne .Values.image.env "local") }}
+          {{- if or .Values.configMaps.common (and .Values.configMaps.environment .Values.configMapData) .Values.secrets.environment .Values.secrets.common }}
           envFrom:
             {{- if .Values.configMaps.common }}
             - configMapRef:
@@ -82,9 +82,9 @@ spec:
             - secretRef:
                 name: {{ .Values.secrets.environment }}   # 서비스+환경별 secret
             {{- end }}
-            {{- if ne .Values.image.env "local" }}
+            {{- if .Values.secrets.common }}
             - secretRef:
-                name: juvis-secret   # 조직 공통 secret (local 제외)
+                name: {{ .Values.secrets.common }}
             {{- end }}
           {{- end }}
           {{- if .Values.livenessProbe.enabled }}
