@@ -127,11 +127,11 @@ func ComputeMetadataCacheKey(appId string, branch string, runtimeVersion string,
 }
 
 func ComputeUpdateManifestCacheKey(appId string, branch string, runtimeVersion string, updateId string, platform string) string {
-	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId, platform)
+	return fmt.Sprintf("manifest:v2:%s:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId, platform)
 }
 
 func ComputeManifestAssetCacheKey(appId string, update types.Update, assetPath string) string {
-	return fmt.Sprintf("asset:%s:%s:%s:%s:%s:%s", appId, version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
+	return fmt.Sprintf("asset:v2:%s:%s:%s:%s:%s:%s", appId, version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
 }
 
 func VerifyUploadedUpdate(update types.Update) error {
