@@ -206,7 +206,7 @@ func GetLatestUpdateBundlePathForRuntimeVersion(appId string, branch string, run
 		}
 		return &update, nil
 	}
-	updates, err := GetAllUpdatesForRuntimeVersion(appId,branch, runtimeVersion, platform)
+	updates, err := GetAllUpdatesForRuntimeVersion(appId, branch, runtimeVersion, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -404,9 +404,11 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 		keyExtensionSuffix = "bundle"
 	}
 	keyExtensionSuffix = "." + keyExtensionSuffix
-	contentType := "application/javascript"
+	contentType := mime.TypeByExtension("." + strings.TrimPrefix(asset.Ext, "."))
 	if isLaunchAsset {
-		contentType = mime.TypeByExtension(asset.Ext)
+		contentType = "application/javascript"
+	} else if contentType == "" {
+		contentType = "application/octet-stream"
 	}
 	finalUrl, errUrl := BuildFinalManifestAssetUrlURL(GetAssetEndpoint(), assetFilePath, update.RuntimeVersion, platform, update.Branch)
 	if errUrl != nil {
