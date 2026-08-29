@@ -36,21 +36,33 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	channelName := r.Header.Get("expo-channel-name")
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(appId, channelName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
+	branchName := r.URL.Query().Get("branch")
+	if channelName != "" {
+		branchMap, err := services.FetchExpoChannelMapping(appId, channelName)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
+			http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
+			return
+		}
+		if branchMap == nil {
+			log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
+			http.Error(w, "No branch mapping found", http.StatusNotFound)
+			return
+		}
+		branchName = branchMap.BranchName
+	} else if branchName == "" {
+		// Expo Updates does not propagate manifest request headers to asset
+		// downloads. App-scoped manifest URLs therefore carry the resolved
+		// branch as a query parameter; legacy top-level URLs still need the
+		// channel header or an explicit branch.
+		log.Printf("[RequestID: %s] No channel header or branch query provided", requestID)
+		http.Error(w, "No channel header or branch query provided", http.StatusBadRequest)
 		return
 	}
 
 	req := assets.AssetsRequest{
 		AppId:          appId,
-		Branch:         branchMap.BranchName,
+		Branch:         branchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
 		Platform:       r.URL.Query().Get("platform"),

@@ -396,17 +396,17 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 }
 
-// TestPathBasedAssetNoHeader: legacy clients fetch /{APP_ID}/assets without the
-// expo-app-id header. The handler must resolve the app id from the path var.
+// TestPathBasedAssetNoHeader: Expo Updates does not propagate the manifest's
+// request headers to asset downloads. App-scoped URLs must therefore resolve
+// both the app id from the path and the branch from the signed manifest URL.
 func TestPathBasedAssetNoHeader(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	SetChannelsConfig(t, map[string]string{"staging": "branch-1"})
-	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "branch-1")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
-	r.Header.Set("expo-channel-name", "staging")
-	// expo-app-id 헤더 없음 — 경로 var로만 식별.
+	// expo-app-id 및 expo-channel-name 헤더 없음 — 경로와 query로 식별.
 	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id"})
 	handlers.AssetsHandler(w, r)
 	assert.Equal(t, 200, w.Code, "경로 var로 식별되어 200이어야 함")
