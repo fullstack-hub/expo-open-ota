@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: 522816884990.dkr.ecr.ap-northeast-2.amazonaws.com/apps/expo-open-ota
   env: main
-  tag: sha-cd319dd3bb89
+  tag: sha-0520082de3b9
 serviceAccount:
   name: expo-open-ota
   annotations:
